@@ -80,7 +80,7 @@ function App() {
         }
 
         const response = await fetch(
-          "http://smarttrip-production-7935.up.railway.app/api/auth/register",
+          "https://smarttrip-production-7935.up.railway.app/api/auth/register",
           {
             method: "POST",
             headers: {
@@ -123,7 +123,7 @@ function App() {
         }
 
         const response = await fetch(
-          "http://smarttrip-production-7935.up.railway.app/api/auth/login",
+          "https://smarttrip-production-7935.up.railway.app/api/auth/login",
           {
             method: "POST",
             headers: {
@@ -202,7 +202,7 @@ function App() {
 
     try {
       const response = await fetch(
-        "http://smarttrip-production-7935.up.railway.app/api/ai/itinerary",
+        "https://smarttrip-production-7935.up.railway.app/api/ai/itinerary",
         {
           method: "POST",
           headers: {
@@ -529,10 +529,8 @@ function App() {
               </div>
 
               <div className="trip-summary">
-
                 <span>📍 {destination}</span>
                 <span>📅 {days} days</span>
-
               </div>
 
             </div>
