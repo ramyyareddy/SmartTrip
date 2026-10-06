@@ -29,7 +29,7 @@ public class SecurityConfig {
         http
             .csrf(csrf -> csrf.disable())
 
-            .cors(cors -> {})
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
@@ -37,9 +37,11 @@ public class SecurityConfig {
 
             .authorizeHttpRequests(auth -> auth
 
+                // Allow browser CORS preflight requests
                 .requestMatchers(HttpMethod.OPTIONS, "/**")
                 .permitAll()
 
+                // Public endpoints
                 .requestMatchers(
                     "/api/auth/register",
                     "/api/auth/login",
@@ -49,6 +51,7 @@ public class SecurityConfig {
                 )
                 .permitAll()
 
+                // Everything else requires JWT authentication
                 .anyRequest()
                 .authenticated()
             )
@@ -66,8 +69,12 @@ public class SecurityConfig {
 
         CorsConfiguration configuration = new CorsConfiguration();
 
+        // Allow the deployed SmartTrip frontend
         configuration.setAllowedOrigins(
-            List.of("http://localhost:5173")
+            List.of(
+                "https://accurate-clarity-production-1b45.up.railway.app",
+                "http://localhost:5173"
+            )
         );
 
         configuration.setAllowedMethods(
