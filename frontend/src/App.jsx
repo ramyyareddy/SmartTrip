@@ -80,7 +80,7 @@ function App() {
         }
 
         const response = await fetch(
-          "http://localhost:8080/api/auth/register",
+          "http://smarttrip-production-7935.up.railway.app/api/auth/register",
           {
             method: "POST",
             headers: {
@@ -123,7 +123,7 @@ function App() {
         }
 
         const response = await fetch(
-          "http://localhost:8080/api/auth/login",
+          "http://smarttrip-production-7935.up.railway.app/api/auth/login",
           {
             method: "POST",
             headers: {
@@ -202,7 +202,7 @@ function App() {
 
     try {
       const response = await fetch(
-        "http://localhost:8080/api/ai/itinerary",
+        "http://smarttrip-production-7935.up.railway.app/api/ai/itinerary",
         {
           method: "POST",
           headers: {
