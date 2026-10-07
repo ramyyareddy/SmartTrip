@@ -70,12 +70,13 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
 
         // Allow the deployed SmartTrip frontend
-        configuration.setAllowedOrigins(
-            List.of(
-                "https://accurate-clarity-production-1b45.up.railway.app",
-                "http://localhost:5173"
-            )
-        );
+       configuration.setAllowedOrigins(
+    List.of(
+        "https://smarttrip-app.up.railway.app",
+        "https://accurate-clarity-production-1b45.up.railway.app",
+        "http://localhost:5173"
+    )
+);
 
         configuration.setAllowedMethods(
             List.of(
