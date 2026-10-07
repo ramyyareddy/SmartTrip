@@ -1791,83 +1791,61 @@ function App() {
      GENERATE ITINERARY
   ======================================================= */
 
-  const generateItinerary = async () => {
-    if (
-      !destination ||
-      !days ||
-      !budget ||
-      !interests
-    ) {
-      setError(
-        "Please fill in all the travel details."
-      );
+    const generateItinerary = async () => {
+  // User must be logged in before generating an itinerary
+  if (!isLoggedIn) {
+    setError("Please log in or create an account to generate your itinerary.");
+    openAuth("login");
+    return;
+  }
 
-      return;
-    }
+  if (!destination || !days || !budget || !interests) {
+    setError("Please fill in all the travel details.");
+    return;
+  }
 
-    setLoading(true);
-    setError("");
-    setItinerary("");
+  setLoading(true);
+  setError("");
+  setItinerary("");
 
-    try {
-      const response = await fetch(
-        `${BACKEND_URL}/api/ai/itinerary`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          body: JSON.stringify({
-            destination,
-            days: Number(days),
-            budget: Number(budget),
-            interests,
-          }),
-        }
-      );
-
-      const data =
-        await response.text();
-
-      if (!response.ok) {
-        throw new Error(
-          `Backend error (${response.status}): ${
-            data ||
-            "Something went wrong"
-          }`
-        );
+  try {
+    const response = await fetch(
+      "https://smarttrips.up.railway.app/api/ai/itinerary",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          destination,
+          days: Number(days),
+          budget: Number(budget),
+          interests,
+        }),
       }
+    );
 
-      setItinerary(data);
+    const data = await response.text();
 
-      /*
-        Scroll toward the result after generation.
-      */
-      setTimeout(() => {
-        document
-          .getElementById(
-            "itinerary-result"
-          )
-          ?.scrollIntoView({
-            behavior: "smooth",
-            block: "start",
-          });
-      }, 100);
-    } catch (err) {
-      console.error(
-        "Itinerary error:",
-        err
+    if (!response.ok) {
+      throw new Error(
+        `Backend error (${response.status}): ${
+          data || "One quick step before you continue!"
+        }`
       );
-
-      setError(
-        err.message ||
-          "Unable to generate itinerary."
-      );
-    } finally {
-      setLoading(false);
     }
-  };
+
+    setItinerary(data);
+  } catch (err) {
+    console.error("Itinerary error:", err);
+
+    setError(
+      err.message || "Unable to generate itinerary."
+    );
+  } finally {
+    setLoading(false);
+  }
+};
 
   /* =======================================================
      PAGE
