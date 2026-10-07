@@ -6,6 +6,9 @@ import com.smarttrip.backend.security.JwtService;
 import com.smarttrip.backend.service.UserService;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/auth")
 @CrossOrigin(origins = "*")
@@ -32,13 +35,20 @@ public class UserController {
     }
 
     @PostMapping("/login")
-    public String login(@RequestBody User user) {
+    public Map<String, Object> login(@RequestBody User user) {
 
         User loggedInUser = userService.loginUser(
                 user.getEmail(),
                 user.getPassword()
         );
 
-        return jwtService.generateToken(loggedInUser.getEmail());
+        Map<String, Object> response = new HashMap<>();
+
+        response.put("token", jwtService.generateToken(loggedInUser.getEmail()));
+        response.put("id", loggedInUser.getId());
+        response.put("name", loggedInUser.getName());
+        response.put("email", loggedInUser.getEmail());
+
+        return response;
     }
 }

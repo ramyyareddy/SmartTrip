@@ -210,10 +210,7 @@ const splitActivityLine = (rawText) => {
 
       notes = notes
         .replace(
-          new RegExp(
-            `\\s*\\(${escapedCost}\\)\\s*$`,
-            "i"
-          ),
+          new RegExp(`\\s*\\(${escapedCost}\\)\\s*$`, "i"),
           ""
         )
         .trim();
@@ -514,8 +511,6 @@ const parseItinerary = (
 
     const line = originalLine.trim();
 
-    /* DAY HEADING */
-
     const dayMatch = isDayHeading(line);
 
     if (dayMatch) {
@@ -535,8 +530,6 @@ const parseItinerary = (
       continue;
     }
 
-    /* SUMMARY / TIPS */
-
     if (isTipsHeading(line)) {
       mode = "tips";
       currentSection = null;
@@ -548,8 +541,6 @@ const parseItinerary = (
       currentSection = null;
       continue;
     }
-
-    /* MARKDOWN TABLE */
 
     if (
       line.includes("|") &&
@@ -609,8 +600,6 @@ const parseItinerary = (
       }
     }
 
-    /* TIME / SECTION HEADING */
-
     const timeMatch = isTimeHeading(line);
 
     if (timeMatch && currentDay) {
@@ -622,8 +611,6 @@ const parseItinerary = (
       mode = "day";
       continue;
     }
-
-    /* METADATA */
 
     const cleaned = cleanText(line);
 
@@ -655,8 +642,6 @@ const parseItinerary = (
       continue;
     }
 
-    /* OVERVIEW */
-
     if (
       mode === "overview" &&
       !currentDay
@@ -682,8 +667,6 @@ const parseItinerary = (
 
       continue;
     }
-
-    /* DAY CONTENT */
 
     if (
       currentDay &&
@@ -787,8 +770,6 @@ const parseItinerary = (
       }
     }
 
-    /* SUMMARY */
-
     if (mode === "summary") {
       const summaryLine =
         removeListMarker(
@@ -868,8 +849,6 @@ const parseItinerary = (
       continue;
     }
 
-    /* TIPS */
-
     if (mode === "tips") {
       const tip =
         removeListMarker(
@@ -884,8 +863,6 @@ const parseItinerary = (
       }
     }
   }
-
-  /* FALLBACK DAY TOTALS */
 
   if (
     parsed.budgetSummary.length === 0 &&
@@ -902,8 +879,6 @@ const parseItinerary = (
     });
   }
 
-  /* FALLBACK DAY COUNT */
-
   if (
     parsed.days.length === 0 &&
     Number(fallbackDays) > 0
@@ -918,8 +893,6 @@ const parseItinerary = (
       );
     }
   }
-
-  /* REMOVE EMPTY DAYS */
 
   parsed.days = parsed.days.filter(
     (day) =>
@@ -1313,8 +1286,6 @@ const FormattedItinerary = ({
 
   return (
     <div className="formatted-itinerary">
-      {/* OVERVIEW */}
-
       <div className="itinerary-overview">
         <div className="overview-top">
           <div>
@@ -1416,8 +1387,6 @@ const FormattedItinerary = ({
         )}
       </div>
 
-      {/* DAYS */}
-
       <div className="itinerary-days">
         {parsed.days.map(
           (day, index) => (
@@ -1429,20 +1398,14 @@ const FormattedItinerary = ({
         )}
       </div>
 
-      {/* BUDGET */}
-
       <BudgetSummary
         summary={parsed.budgetSummary}
         finalTotal={parsed.finalTotal}
       />
 
-      {/* TIPS */}
-
       <TipsCard
         tips={parsed.finalTips}
       />
-
-      {/* RAW FALLBACK */}
 
       {parsed.days.length === 0 &&
         !parsed.finalTips.length && (
@@ -1538,6 +1501,31 @@ function App() {
         "smarttripToken"
       )
     );
+
+  /* =======================================================
+     CURRENT USER
+  ======================================================= */
+
+  const [currentUser, setCurrentUser] =
+    useState(() => {
+      const savedUser =
+        localStorage.getItem(
+          "smarttripUser"
+        );
+
+      if (!savedUser) {
+        return null;
+      }
+
+      try {
+        return JSON.parse(savedUser);
+      } catch {
+        return null;
+      }
+    });
+
+  const [userMenuOpen, setUserMenuOpen] =
+    useState(false);
 
   /* =======================================================
      AUTH MODAL
@@ -1859,13 +1847,63 @@ function App() {
           }
         );
 
-        const token =
+        /*
+         * IMPORTANT:
+         * Your current backend returns the JWT
+         * as plain text:
+         *
+         * eyJhbGciOi...
+         *
+         * So we read the response as text first.
+         *
+         * This also supports JSON automatically
+         * if we later update the backend to return:
+         *
+         * {
+         *   "token": "...",
+         *   "id": 1,
+         *   "name": "...",
+         *   "email": "..."
+         * }
+         */
+
+        const responseText =
           await response.text();
+
+        let data = null;
+
+        try {
+          data = JSON.parse(
+            responseText
+          );
+        } catch {
+          data = null;
+        }
 
         if (!response.ok) {
           throw new Error(
-            token ||
+            data?.message ||
+              data?.error ||
+              responseText ||
               "Invalid email or password."
+          );
+        }
+
+        /*
+         * If backend returns JSON,
+         * use data.token.
+         *
+         * If backend returns plain JWT,
+         * use responseText directly.
+         */
+
+        const token =
+          data?.token ||
+          responseText.trim();
+
+        if (!token) {
+          throw new Error(
+            "Login succeeded, but no authentication token was returned."
           );
         }
 
@@ -1874,14 +1912,32 @@ function App() {
           token
         );
 
+        /*
+         * If backend gives us the user's
+         * actual name/email, use them.
+         *
+         * Otherwise fall back to the
+         * login email and Traveler.
+         */
+
+        const user = {
+          id: data?.id || null,
+          name:
+            data?.name ||
+            "Traveler",
+          email:
+            data?.email ||
+            authEmail,
+        };
+
         localStorage.setItem(
           "smarttripUser",
-          JSON.stringify({
-            email: authEmail,
-          })
+          JSON.stringify(user)
         );
 
+        setCurrentUser(user);
         setIsLoggedIn(true);
+        setUserMenuOpen(false);
 
         await loadSavedTrips();
 
@@ -1916,6 +1972,8 @@ function App() {
     );
 
     setIsLoggedIn(false);
+    setCurrentUser(null);
+    setUserMenuOpen(false);
     setSavedTrips([]);
     setAuthName("");
     setAuthEmail("");
@@ -1959,17 +2017,6 @@ function App() {
         localStorage.getItem(
           "smarttripToken"
         );
-
-      /*
-        We keep the existing backend request structure
-        so no backend DTO changes are required.
-
-        The selected Trip Style is added to the interests
-        value sent to the AI. This lets the existing AI
-        prompt receive both:
-        - WHAT the traveler likes
-        - HOW they want the trip to feel
-      */
 
       const aiInterests = `${interests}. Trip Style: ${tripStyle}.`;
 
@@ -2100,18 +2147,89 @@ function App() {
               </button>
             </>
           ) : (
-            <>
-              <span className="welcome-user">
-                👋 Welcome
-              </span>
-
+            <div className="user-menu">
               <button
-                className="login-button"
-                onClick={logout}
+                className="user-menu-button"
+                onClick={() =>
+                  setUserMenuOpen(
+                    (current) => !current
+                  )
+                }
+                aria-expanded={userMenuOpen}
               >
-                Logout
+                <span className="user-avatar">
+                  👤
+                </span>
+
+                <span className="user-menu-text">
+                  <strong>
+                    Hi,{" "}
+                    {currentUser?.name ||
+                      "Traveler"}
+                  </strong>
+
+                  <small>
+                    {currentUser?.email ||
+                      ""}
+                  </small>
+                </span>
+
+                <span className="user-chevron">
+                  {userMenuOpen
+                    ? "⌃"
+                    : "⌄"}
+                </span>
               </button>
-            </>
+
+              {userMenuOpen && (
+                <div className="user-dropdown">
+                  <div className="user-dropdown-header">
+                    <div className="user-dropdown-avatar">
+                      👤
+                    </div>
+
+                    <div>
+                      <strong>
+                        {currentUser?.name ||
+                          "Traveler"}
+                      </strong>
+
+                      <span>
+                        {currentUser?.email ||
+                          ""}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="user-dropdown-divider" />
+
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(
+                        false
+                      );
+
+                      document
+                        .getElementById(
+                          "my-trips"
+                        )
+                        ?.scrollIntoView({
+                          behavior:
+                            "smooth",
+                        });
+                    }}
+                  >
+                    🧳 My Trips
+                  </button>
+
+                  <button
+                    onClick={logout}
+                  >
+                    🚪 Logout
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </nav>
@@ -2381,8 +2499,6 @@ function App() {
           </button>
         </div>
 
-        {/* ERROR */}
-
         {error && (
           <div className="error-box">
             <span>⚠️</span>
@@ -2398,8 +2514,6 @@ function App() {
             </div>
           </div>
         )}
-
-        {/* RESULT */}
 
         {itinerary && (
           <div
@@ -2450,8 +2564,6 @@ function App() {
                 interests={interests}
               />
             </div>
-
-            {/* SAVE TRIP */}
 
             <div className="save-trip-container">
               <button
