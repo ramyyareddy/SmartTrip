@@ -2327,3 +2327,501 @@ footer p {
     flex-direction: column;
   }
 }
+/* =========================================================
+   SAVE TRIP
+========================================================= */
+
+.save-trip-container {
+  display: flex;
+  justify-content: center;
+  margin-top: 22px;
+}
+
+.save-trip-button {
+  min-width: 220px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+
+  padding: 14px 22px;
+
+  border: none;
+  border-radius: 12px;
+
+  background: #079477;
+  color: white;
+
+  font-size: 13px;
+  font-weight: 800;
+
+  box-shadow: 0 10px 25px rgba(7, 148, 119, 0.18);
+
+  transition: 0.25s;
+}
+
+.save-trip-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+
+  background: #067d67;
+
+  box-shadow:
+    0 15px 30px rgba(7, 148, 119, 0.24);
+}
+
+.save-trip-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.save-trip-button > span:last-child {
+  font-size: 18px;
+}
+
+
+/* =========================================================
+   SAVE SUCCESS
+========================================================= */
+
+.save-success-box {
+  width: min(760px, 100%);
+
+  margin: 20px auto 0;
+
+  display: flex;
+  align-items: center;
+
+  gap: 12px;
+
+  padding: 15px 18px;
+
+  border-radius: 13px;
+
+  background: #e8f7f3;
+
+  border: 1px solid #c9eee5;
+
+  color: #087f6a;
+}
+
+.save-success-box > span {
+  font-size: 20px;
+}
+
+.save-success-box p {
+  margin: 0;
+
+  font-size: 13px;
+  font-weight: 700;
+}
+
+
+/* =========================================================
+   MY TRIPS
+========================================================= */
+
+.my-trips-section {
+  padding: 100px 8%;
+
+  background:
+    linear-gradient(
+      135deg,
+      #f7fbfa 0%,
+      #ffffff 55%,
+      #eef9f6 100%
+    );
+}
+
+.saved-trips-grid {
+  width: min(1100px, 100%);
+
+  margin: 0 auto;
+
+  display: grid;
+
+  grid-template-columns:
+    repeat(3, 1fr);
+
+  gap: 20px;
+}
+
+
+/* =========================================================
+   SAVED TRIP CARD
+========================================================= */
+
+.saved-trip-card {
+  position: relative;
+
+  padding: 24px;
+
+  background: white;
+
+  border: 1px solid #e5eaf0;
+
+  border-radius: 20px;
+
+  box-shadow:
+    0 12px 35px rgba(23, 32, 51, 0.06);
+
+  transition: 0.25s;
+}
+
+.saved-trip-card:hover {
+  transform: translateY(-5px);
+
+  box-shadow:
+    0 20px 45px rgba(23, 32, 51, 0.09);
+}
+
+.saved-trip-top {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  margin-bottom: 18px;
+}
+
+.saved-trip-icon {
+  width: 48px;
+  height: 48px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 14px;
+
+  background: #e8f7f3;
+
+  font-size: 23px;
+}
+
+.delete-trip-button {
+  width: 35px;
+  height: 35px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border: none;
+
+  border-radius: 9px;
+
+  background: #fff5f5;
+
+  font-size: 15px;
+
+  opacity: 0.7;
+
+  transition: 0.2s;
+}
+
+.delete-trip-button:hover {
+  opacity: 1;
+
+  background: #ffe5e5;
+
+  transform: scale(1.05);
+}
+
+.saved-trip-label {
+  display: block;
+
+  margin-bottom: 7px;
+
+  color: #079477;
+
+  font-size: 9px;
+
+  font-weight: 900;
+
+  letter-spacing: 1.4px;
+}
+
+.saved-trip-card h3 {
+  margin-bottom: 16px;
+
+  color: #172033;
+
+  font-size: 23px;
+
+  line-height: 1.2;
+
+  letter-spacing: -0.5px;
+}
+
+.saved-trip-details {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 8px;
+
+  margin-bottom: 18px;
+}
+
+.saved-trip-details span {
+  padding: 7px 10px;
+
+  border-radius: 999px;
+
+  background: #f5f7f9;
+
+  color: #667085;
+
+  font-size: 11px;
+
+  font-weight: 700;
+}
+
+
+/* =========================================================
+   SAVED ITINERARY
+========================================================= */
+
+.saved-trip-itinerary {
+  margin-top: 15px;
+
+  border-top: 1px solid #edf0f5;
+
+  padding-top: 15px;
+}
+
+.saved-trip-itinerary summary {
+  cursor: pointer;
+
+  list-style: none;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 11px 13px;
+
+  border-radius: 10px;
+
+  background: #f8fafb;
+
+  color: #172033;
+
+  font-size: 12px;
+
+  font-weight: 800;
+
+  transition: 0.2s;
+}
+
+.saved-trip-itinerary summary::-webkit-details-marker {
+  display: none;
+}
+
+.saved-trip-itinerary summary::after {
+  content: "＋";
+
+  color: #079477;
+
+  font-size: 17px;
+}
+
+.saved-trip-itinerary[open] summary::after {
+  content: "−";
+}
+
+.saved-trip-itinerary summary:hover {
+  background: #e8f7f3;
+
+  color: #087f6a;
+}
+
+.saved-trip-content {
+  margin-top: 15px;
+
+  max-height: 700px;
+
+  overflow-y: auto;
+
+  padding-right: 5px;
+}
+
+
+/* Make saved itinerary slightly more compact */
+
+.saved-trip-content .itinerary-overview {
+  padding: 20px;
+
+  border-radius: 17px;
+}
+
+.saved-trip-content .overview-top h3 {
+  font-size: 22px;
+}
+
+.saved-trip-content .day-card {
+  border-radius: 16px;
+}
+
+.saved-trip-content .day-card-header {
+  padding: 16px 18px;
+}
+
+.saved-trip-content .day-heading-content h3 {
+  font-size: 18px;
+}
+
+.saved-trip-content .day-card-body {
+  padding: 14px;
+}
+
+.saved-trip-content .time-card {
+  border-radius: 14px;
+}
+
+.saved-trip-content .structured-activity {
+  padding: 13px 14px;
+}
+
+
+/* =========================================================
+   EMPTY MY TRIPS
+========================================================= */
+
+.empty-trips-card {
+  width: min(700px, 100%);
+
+  margin: auto;
+
+  padding: 55px 35px;
+
+  text-align: center;
+
+  background: white;
+
+  border: 1px solid #e5eaf0;
+
+  border-radius: 22px;
+
+  box-shadow:
+    0 15px 40px rgba(23, 32, 51, 0.06);
+}
+
+.empty-trips-icon {
+  width: 70px;
+  height: 70px;
+
+  margin: 0 auto 20px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 20px;
+
+  background: #e8f7f3;
+
+  font-size: 34px;
+}
+
+.empty-trips-card h3 {
+  margin-bottom: 10px;
+
+  color: #172033;
+
+  font-size: 22px;
+}
+
+.empty-trips-card p {
+  max-width: 430px;
+
+  margin: 0 auto 25px;
+
+  color: #7a8496;
+
+  font-size: 13px;
+
+  line-height: 1.7;
+}
+
+
+/* =========================================================
+   MY TRIPS LOADING
+========================================================= */
+
+.my-trips-message {
+  width: min(700px, 100%);
+
+  margin: auto;
+
+  min-height: 130px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 12px;
+
+  border-radius: 18px;
+
+  background: white;
+
+  border: 1px solid #e5eaf0;
+
+  color: #667085;
+
+  font-size: 13px;
+}
+
+.my-trips-message .spinner {
+  border-color: rgba(7, 148, 119, 0.2);
+  border-top-color: #079477;
+}
+
+
+/* =========================================================
+   MY TRIPS RESPONSIVE
+========================================================= */
+
+@media (max-width: 1000px) {
+  .saved-trips-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 750px) {
+  .my-trips-section {
+    padding: 75px 6%;
+  }
+
+  .saved-trips-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .save-trip-button {
+    width: 100%;
+  }
+
+  .empty-trips-card {
+    padding: 45px 25px;
+  }
+}
+
+@media (max-width: 480px) {
+  .my-trips-section {
+    padding: 65px 5%;
+  }
+
+  .saved-trip-card {
+    padding: 20px;
+  }
+
+  .saved-trip-card h3 {
+    font-size: 21px;
+  }
+
+  .empty-trips-card {
+    padding: 40px 20px;
+  }
+}

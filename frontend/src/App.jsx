@@ -1,4 +1,5 @@
 import { useState } from "react";
+
 import "./App.css";
 
 /* =========================================================
@@ -66,9 +67,7 @@ const isTableSeparator = (line) => {
 const isDayHeading = (line) => {
   const text = cleanHeading(line);
 
-  return text.match(
-    /^Day\s+(\d+)\s*(?:[-–—:]\s*)?(.*)$/i
-  );
+  return text.match(/^Day\s+(\d+)\s*(?:[-–—:]\s*)?(.*)$/i);
 };
 
 const isTimeHeading = (line) => {
@@ -112,7 +111,7 @@ const extractCost = (text) => {
   }
 
   const parenthetical = value.match(
-    /\(([^)]*(?:\d[\d.,]*\s*[kKmM]?|free)[^)]*)\)\s*\.?$/i
+    /\(([^)]*(?:\d[\d.,]*\s*[kKmM]?|free)[^)]*)\)\s*$/i
   );
 
   if (parenthetical) {
@@ -146,13 +145,6 @@ const splitActivityLine = (rawText) => {
       cost: "",
     };
   }
-
-  /*
-    Example:
-
-    Temple walk — Tirta Empul — Approx. Cost:
-    Free entry; shared motorbike (≈ 30 k)
-  */
 
   let notes = "";
   let cost = "";
@@ -190,12 +182,6 @@ const splitActivityLine = (rawText) => {
     text = beforeCost;
   }
 
-  /*
-    Example:
-
-    Temple walk — Tirta Empul
-  */
-
   const parts = text
     .split(/\s+[—–-]\s+/)
     .map((part) => cleanText(part))
@@ -217,9 +203,6 @@ const splitActivityLine = (rawText) => {
     activity = parts[0] || text;
   }
 
-  /*
-    If cost is still empty, try to find one from notes.
-  */
   if (!cost && notes) {
     const foundCost = extractCost(notes);
 
@@ -228,9 +211,6 @@ const splitActivityLine = (rawText) => {
     }
   }
 
-  /*
-    Remove obvious placeholder/header rows.
-  */
   const normalized = activity.toLowerCase();
 
   if (
@@ -275,8 +255,7 @@ const getOrCreateSection = (day, title) => {
   const cleanTitle = cleanHeading(title);
 
   let section = day.sections.find(
-    (item) =>
-      item.title.toLowerCase() === cleanTitle.toLowerCase()
+    (item) => item.title.toLowerCase() === cleanTitle.toLowerCase()
   );
 
   if (!section) {
@@ -294,7 +273,6 @@ const findColumnIndex = (headers, names) => {
 
   for (const name of names) {
     const target = normalizeKey(name);
-
     const exact = normalizedHeaders.indexOf(target);
 
     if (exact !== -1) {
@@ -380,14 +358,11 @@ const addTableRowToDay = (
   const lowerActivity = activity.toLowerCase();
   const lowerSegment = segment.toLowerCase();
 
-  /*
-    Daily total row.
-  */
   if (
     lowerSegment.includes("total") ||
     lowerActivity.includes("daily total") ||
     lowerActivity.includes("estimated daily total") ||
-    lowerActivity.includes("total")
+    lowerActivity === "total"
   ) {
     const totalValue =
       cost ||
@@ -402,9 +377,6 @@ const addTableRowToDay = (
     return;
   }
 
-  /*
-    Ignore table headers accidentally repeated as rows.
-  */
   if (
     lowerActivity === "activity" ||
     lowerActivity.includes("activity — place") ||
@@ -423,9 +395,6 @@ const addTableRowToDay = (
     targetSection = fallbackSection || "Activities";
   }
 
-  /*
-    Normalize section names.
-  */
   const knownSection = [
     "morning",
     "afternoon",
@@ -434,9 +403,8 @@ const addTableRowToDay = (
     "transport",
     "food",
     "meals",
-  ].find(
-    (item) =>
-      targetSection.toLowerCase().includes(item)
+  ].find((item) =>
+    targetSection.toLowerCase().includes(item)
   );
 
   if (knownSection) {
@@ -468,7 +436,9 @@ const parseItinerary = (
   const parsed = {
     title:
       fallbackDestination || "Your SmartTrip Journey",
+
     overview: [],
+
     meta: {
       budget: fallbackBudget
         ? String(fallbackBudget)
@@ -477,6 +447,7 @@ const parseItinerary = (
       currency: "",
       transport: "",
     },
+
     days: [],
     budgetSummary: [],
     finalTotal: "",
@@ -501,11 +472,7 @@ const parseItinerary = (
 
     const line = originalLine.trim();
 
-    /*
-      -------------------------------------------------------
-      DAY HEADING
-      -------------------------------------------------------
-    */
+    /* DAY HEADING */
 
     const dayMatch = isDayHeading(line);
 
@@ -519,18 +486,13 @@ const parseItinerary = (
       );
 
       parsed.days.push(currentDay);
-
       currentSection = null;
       mode = "day";
 
       continue;
     }
 
-    /*
-      -------------------------------------------------------
-      SUMMARY / TIPS HEADINGS
-      -------------------------------------------------------
-    */
+    /* SUMMARY / TIPS */
 
     if (isTipsHeading(line)) {
       mode = "tips";
@@ -544,11 +506,7 @@ const parseItinerary = (
       continue;
     }
 
-    /*
-      -------------------------------------------------------
-      MARKDOWN TABLE
-      -------------------------------------------------------
-    */
+    /* MARKDOWN TABLE */
 
     if (
       line.includes("|") &&
@@ -577,9 +535,6 @@ const parseItinerary = (
                 currentSection?.title || "Activities"
               );
             } else {
-              /*
-                Summary table before/after days.
-              */
               const rowLabel = cleanText(
                 cells[0] || ""
               );
@@ -591,8 +546,7 @@ const parseItinerary = (
               if (
                 rowLabel &&
                 rowValue &&
-                rowLabel.toLowerCase() !==
-                  "item"
+                rowLabel.toLowerCase() !== "item"
               ) {
                 parsed.budgetSummary.push({
                   item: rowLabel,
@@ -611,11 +565,7 @@ const parseItinerary = (
       }
     }
 
-    /*
-      -------------------------------------------------------
-      TIME / SECTION HEADING
-      -------------------------------------------------------
-    */
+    /* TIME / SECTION HEADING */
 
     const timeMatch = isTimeHeading(line);
 
@@ -626,15 +576,10 @@ const parseItinerary = (
       );
 
       mode = "day";
-
       continue;
     }
 
-    /*
-      -------------------------------------------------------
-      METADATA
-      -------------------------------------------------------
-    */
+    /* METADATA */
 
     const cleaned = cleanText(line);
 
@@ -652,14 +597,6 @@ const parseItinerary = (
       continue;
     }
 
-    /*
-      Handle AI output such as:
-
-      BUDGET 600000
-      INTERESTS food,art
-      CURRENCY Travel Budget
-    */
-
     const inlineMeta = cleaned.match(
       /^(Budget|Interests|Currency|Transport)\s+(.+)$/i
     );
@@ -674,11 +611,7 @@ const parseItinerary = (
       continue;
     }
 
-    /*
-      -------------------------------------------------------
-      OVERVIEW
-      -------------------------------------------------------
-    */
+    /* OVERVIEW */
 
     if (
       mode === "overview" &&
@@ -706,20 +639,10 @@ const parseItinerary = (
       continue;
     }
 
-    /*
-      -------------------------------------------------------
-      DAY CONTENT
-      -------------------------------------------------------
-    */
+    /* DAY CONTENT */
 
     if (currentDay && mode === "day") {
       const plainLine = cleanText(line);
-
-      /*
-        Day total:
-        Approx. Cost: 135 k
-        Estimated Daily Total: 135 k
-      */
 
       const totalMatch = plainLine.match(
         /^(?:Approx\.?\s*Cost|Estimated Daily Total|Daily Total|Total)\s*:?\s*(.+)$/i
@@ -733,12 +656,7 @@ const parseItinerary = (
         continue;
       }
 
-      /*
-        Places list.
-      */
-      if (
-        /^places?\s*:/i.test(plainLine)
-      ) {
+      if (/^places?\s*:/i.test(plainLine)) {
         const places = plainLine
           .replace(/^places?\s*:/i, "")
           .split(/[,•]/)
@@ -750,12 +668,7 @@ const parseItinerary = (
         continue;
       }
 
-      /*
-        Food list.
-      */
-      if (
-        /^food\s*:/i.test(plainLine)
-      ) {
+      if (/^food\s*:/i.test(plainLine)) {
         const foods = plainLine
           .replace(/^food\s*:/i, "")
           .split(/[,•]/)
@@ -767,9 +680,6 @@ const parseItinerary = (
         continue;
       }
 
-      /*
-        Bulleted activity.
-      */
       const isBullet = /^[-*•]\s+/.test(line);
 
       if (isBullet) {
@@ -794,13 +704,6 @@ const parseItinerary = (
         continue;
       }
 
-      /*
-        Some AI outputs use:
-
-        Temple walk — Tirta Empul — Approx. Cost...
-        
-        without a bullet.
-      */
       if (
         plainLine.includes("Approx. Cost") ||
         plainLine.includes(" — ")
@@ -817,13 +720,11 @@ const parseItinerary = (
             );
 
           section.items.push(activity);
+
           continue;
         }
       }
 
-      /*
-        Standalone cost.
-      */
       const standaloneCost = plainLine.match(
         /^(?:Approx\.?\s*Cost(?:\s*\([^)]*\))?)\s*:?\s*(.+)$/i
       );
@@ -837,11 +738,7 @@ const parseItinerary = (
       }
     }
 
-    /*
-      -------------------------------------------------------
-      SUMMARY
-      -------------------------------------------------------
-    */
+    /* SUMMARY */
 
     if (mode === "summary") {
       const summaryLine = removeListMarker(
@@ -864,10 +761,6 @@ const parseItinerary = (
         continue;
       }
 
-      /*
-        Skip table-like labels that aren't useful
-        as actual budget rows.
-      */
       if (
         /^(?:Approx\.?\s*Cost|Amount|Item|Day)$/i.test(
           summaryLine
@@ -890,10 +783,6 @@ const parseItinerary = (
         continue;
       }
 
-      /*
-        A line containing only a cost amount.
-        We'll attach it to days later if possible.
-      */
       if (
         /^\s*(?:≈|~|₹|\$|€|£)?\s*\d[\d.,]*\s*[kKmM]?(?:\s*[A-Z]{2,4})?\s*$/i.test(
           summaryLine
@@ -908,11 +797,6 @@ const parseItinerary = (
         continue;
       }
 
-      /*
-        Generic summary row:
-        Food: 100 k
-        Transport: 55 k
-      */
       const colonSummary =
         summaryLine.match(
           /^(.+?)\s*:\s*(.+)$/
@@ -933,11 +817,7 @@ const parseItinerary = (
       continue;
     }
 
-    /*
-      -------------------------------------------------------
-      TIPS
-      -------------------------------------------------------
-    */
+    /* TIPS */
 
     if (mode === "tips") {
       const tip = removeListMarker(
@@ -946,9 +826,7 @@ const parseItinerary = (
 
       if (
         tip &&
-        !tip.match(
-          /^SmartTrip Tips$/i
-        )
+        !tip.match(/^SmartTrip Tips$/i)
       ) {
         parsed.finalTips.push(tip);
       }
@@ -957,11 +835,7 @@ const parseItinerary = (
     }
   }
 
-  /*
-    ---------------------------------------------------------
-    FALLBACK DAY TOTALS
-    ---------------------------------------------------------
-  */
+  /* FALLBACK DAY TOTALS */
 
   if (
     parsed.budgetSummary.length === 0 &&
@@ -978,11 +852,7 @@ const parseItinerary = (
     });
   }
 
-  /*
-    ---------------------------------------------------------
-    FALLBACK DAY COUNT
-    ---------------------------------------------------------
-  */
+  /* FALLBACK DAY COUNT */
 
   if (
     parsed.days.length === 0 &&
@@ -999,11 +869,7 @@ const parseItinerary = (
     }
   }
 
-  /*
-    ---------------------------------------------------------
-    REMOVE EMPTY DAYS
-    ---------------------------------------------------------
-  */
+  /* REMOVE EMPTY DAYS */
 
   parsed.days = parsed.days.filter(
     (day) =>
@@ -1051,7 +917,11 @@ const renderInlineText = (text) => {
       );
     }
 
-    return <span key={index}>{part}</span>;
+    return (
+      <span key={index}>
+        {part}
+      </span>
+    );
   });
 };
 
@@ -1063,7 +933,6 @@ const ActivityRow = ({ item }) => {
   return (
     <div className="structured-activity">
       <div className="structured-activity-main">
-
         <div className="activity-field">
           <span className="activity-field-label">
             ACTIVITY
@@ -1099,7 +968,6 @@ const ActivityRow = ({ item }) => {
             </p>
           </div>
         )}
-
       </div>
 
       {item.cost && (
@@ -1108,7 +976,6 @@ const ActivityRow = ({ item }) => {
           <strong>{item.cost}</strong>
         </div>
       )}
-
     </div>
   );
 };
@@ -1118,32 +985,25 @@ const TimeSection = ({ section }) => {
     return null;
   }
 
+  const title = section.title.toLowerCase();
+
+  const icon = title.includes("morning")
+    ? "🌅"
+    : title.includes("afternoon")
+    ? "☀️"
+    : title.includes("evening")
+    ? "🌙"
+    : title.includes("shopping")
+    ? "🛍️"
+    : title.includes("transport")
+    ? "🚕"
+    : "✨";
+
   return (
     <div className="time-card">
-
       <div className="time-card-header">
         <div className="time-icon">
-          {section.title
-            .toLowerCase()
-            .includes("morning")
-            ? "🌅"
-            : section.title
-                .toLowerCase()
-                .includes("afternoon")
-            ? "☀️"
-            : section.title
-                .toLowerCase()
-                .includes("evening")
-            ? "🌙"
-            : section.title
-                .toLowerCase()
-                .includes("shopping")
-            ? "🛍️"
-            : section.title
-                .toLowerCase()
-                .includes("transport")
-            ? "🚕"
-            : "✨"}
+          {icon}
         </div>
 
         <div>
@@ -1163,7 +1023,6 @@ const TimeSection = ({ section }) => {
           />
         ))}
       </div>
-
     </div>
   );
 };
@@ -1171,9 +1030,7 @@ const TimeSection = ({ section }) => {
 const DayCard = ({ day }) => {
   return (
     <article className="day-card">
-
       <div className="day-card-header">
-
         <div className="day-pill">
           DAY {day.number}
         </div>
@@ -1188,11 +1045,9 @@ const DayCard = ({ day }) => {
               `Day ${day.number}`}
           </h3>
         </div>
-
       </div>
 
       <div className="day-card-body">
-
         {day.sections.map(
           (section, index) => (
             <TimeSection
@@ -1242,6 +1097,7 @@ const DayCard = ({ day }) => {
           <div className="day-total-card">
             <div>
               <span>ESTIMATED DAY TOTAL</span>
+
               <strong>
                 Day {day.number}
               </strong>
@@ -1252,9 +1108,7 @@ const DayCard = ({ day }) => {
             </div>
           </div>
         )}
-
       </div>
-
     </article>
   );
 };
@@ -1272,7 +1126,6 @@ const BudgetSummary = ({
 
   return (
     <div className="final-budget-card">
-
       <div className="final-budget-header">
         <div className="budget-icon">
           💰
@@ -1291,7 +1144,6 @@ const BudgetSummary = ({
 
       {summary && summary.length > 0 && (
         <div className="budget-summary-list">
-
           {summary.map(
             (row, index) => (
               <div
@@ -1309,7 +1161,6 @@ const BudgetSummary = ({
               </div>
             )
           )}
-
         </div>
       )}
 
@@ -1330,7 +1181,6 @@ const BudgetSummary = ({
           </strong>
         </div>
       )}
-
     </div>
   );
 };
@@ -1342,7 +1192,6 @@ const TipsCard = ({ tips }) => {
 
   return (
     <div className="smarttrip-tip-box">
-
       <div className="tip-box-header">
         <span className="tip-icon">
           ✨
@@ -1367,6 +1216,7 @@ const TipsCard = ({ tips }) => {
               key={index}
             >
               <span>✓</span>
+
               <p>
                 {renderInlineText(tip)}
               </p>
@@ -1374,7 +1224,6 @@ const TipsCard = ({ tips }) => {
           )
         )}
       </div>
-
     </div>
   );
 };
@@ -1398,15 +1247,20 @@ const FormattedItinerary = ({
     interests
   );
 
+  /*
+    Saved trips don't separately store "days".
+    Therefore, use the number of parsed days when
+    the days prop isn't available.
+  */
+  const displayDays =
+    days || parsed.days.length || "";
+
   return (
     <div className="formatted-itinerary">
-
       {/* OVERVIEW */}
 
       <div className="itinerary-overview">
-
         <div className="overview-top">
-
           <div>
             <span className="overview-kicker">
               🌴 YOUR SMARTTRIP PLAN
@@ -1421,18 +1275,17 @@ const FormattedItinerary = ({
           <div className="overview-destination">
             📍 {destination}
           </div>
-
         </div>
 
         <div className="overview-meta">
-
           <div className="overview-meta-item">
             <span>📅</span>
 
             <div>
               <small>DURATION</small>
+
               <strong>
-                {days} Days
+                {displayDays} Days
               </strong>
             </div>
           </div>
@@ -1442,6 +1295,7 @@ const FormattedItinerary = ({
 
             <div>
               <small>BUDGET</small>
+
               <strong>
                 {parsed.meta.budget ||
                   budget}
@@ -1454,6 +1308,7 @@ const FormattedItinerary = ({
 
             <div>
               <small>INTERESTS</small>
+
               <strong>
                 {parsed.meta.interests ||
                   interests}
@@ -1467,6 +1322,7 @@ const FormattedItinerary = ({
 
               <div>
                 <small>CURRENCY</small>
+
                 <strong>
                   {parsed.meta.currency}
                 </strong>
@@ -1480,13 +1336,13 @@ const FormattedItinerary = ({
 
               <div>
                 <small>TRANSPORT</small>
+
                 <strong>
                   {parsed.meta.transport}
                 </strong>
               </div>
             </div>
           )}
-
         </div>
 
         {parsed.overview.length > 0 && (
@@ -1500,13 +1356,11 @@ const FormattedItinerary = ({
             )}
           </div>
         )}
-
       </div>
 
       {/* DAYS */}
 
       <div className="itinerary-days">
-
         {parsed.days.map(
           (day, index) => (
             <DayCard
@@ -1515,7 +1369,6 @@ const FormattedItinerary = ({
             />
           )
         )}
-
       </div>
 
       {/* BUDGET */}
@@ -1543,7 +1396,6 @@ const FormattedItinerary = ({
             </p>
           </div>
         )}
-
     </div>
   );
 };
@@ -1576,6 +1428,22 @@ function App() {
     useState(false);
 
   const [error, setError] =
+    useState("");
+
+  /* =======================================================
+     SAVED TRIPS STATE
+  ======================================================= */
+
+  const [savedTrips, setSavedTrips] =
+    useState([]);
+
+  const [savingTrip, setSavingTrip] =
+    useState(false);
+
+  const [tripsLoading, setTripsLoading] =
+    useState(false);
+
+  const [tripsError, setTripsError] =
     useState("");
 
   /* =======================================================
@@ -1634,6 +1502,207 @@ function App() {
   };
 
   /* =======================================================
+     LOAD SAVED TRIPS
+  ======================================================= */
+
+  const loadSavedTrips = async () => {
+    const token =
+      localStorage.getItem(
+        "smarttripToken"
+      );
+
+    if (!token) {
+      setSavedTrips([]);
+      return;
+    }
+
+    setTripsLoading(true);
+    setTripsError("");
+
+    try {
+      const response = await fetch(
+        `${BACKEND_URL}/api/trips`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          "Unable to load your saved trips."
+        );
+      }
+
+      const data =
+        await response.json();
+
+      setSavedTrips(
+        Array.isArray(data) ? data : []
+      );
+    } catch (err) {
+      console.error(
+        "Load trips error:",
+        err
+      );
+
+      setTripsError(
+        err.message ||
+          "Unable to load saved trips."
+      );
+    } finally {
+      setTripsLoading(false);
+    }
+  };
+
+  /* =======================================================
+     SAVE TRIP
+  ======================================================= */
+
+  const saveTrip = async () => {
+    const token =
+      localStorage.getItem(
+        "smarttripToken"
+      );
+
+    if (!token) {
+      openAuth("login");
+      return;
+    }
+
+    if (!itinerary) {
+      setError(
+        "Generate an itinerary before saving your trip."
+      );
+      return;
+    }
+
+    setSavingTrip(true);
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${BACKEND_URL}/api/trips`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            Authorization: `Bearer ${token}`,
+          },
+
+          body: JSON.stringify({
+            destination,
+            startDate: null,
+            endDate: null,
+            budget: Number(budget),
+            interests,
+            itinerary,
+          }),
+        }
+      );
+
+      const data =
+        await response.text();
+
+      if (!response.ok) {
+        throw new Error(
+          data ||
+            "Unable to save your trip."
+        );
+      }
+
+      await loadSavedTrips();
+
+      alert(
+        "✨ Trip saved successfully!"
+      );
+
+      document
+        .getElementById("my-trips")
+        ?.scrollIntoView({
+          behavior: "smooth",
+        });
+    } catch (err) {
+      console.error(
+        "Save trip error:",
+        err
+      );
+
+      setError(
+        err.message ||
+          "Unable to save your trip."
+      );
+    } finally {
+      setSavingTrip(false);
+    }
+  };
+
+  /* =======================================================
+     DELETE TRIP
+  ======================================================= */
+
+  const deleteTrip = async (tripId) => {
+    const token =
+      localStorage.getItem(
+        "smarttripToken"
+      );
+
+    if (!token) {
+      openAuth("login");
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        "Are you sure you want to delete this saved trip?"
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${BACKEND_URL}/api/trips/${tripId}`,
+        {
+          method: "DELETE",
+
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          "Unable to delete this trip."
+        );
+      }
+
+      setSavedTrips(
+        (currentTrips) =>
+          currentTrips.filter(
+            (trip) =>
+              trip.id !== tripId
+          )
+      );
+    } catch (err) {
+      console.error(
+        "Delete trip error:",
+        err
+      );
+
+      setTripsError(
+        err.message ||
+          "Unable to delete this trip."
+      );
+    }
+  };
+
+  /* =======================================================
      LOGIN / SIGNUP
   ======================================================= */
 
@@ -1645,9 +1714,7 @@ function App() {
     setAuthLoading(true);
 
     try {
-      /* ---------------------------------------------------
-         SIGN UP
-      --------------------------------------------------- */
+      /* SIGN UP */
 
       if (authMode === "signup") {
         if (
@@ -1664,10 +1731,12 @@ function App() {
           `${BACKEND_URL}/api/auth/register`,
           {
             method: "POST",
+
             headers: {
               "Content-Type":
                 "application/json",
             },
+
             body: JSON.stringify({
               name: authName,
               email: authEmail,
@@ -1692,14 +1761,13 @@ function App() {
 
         setAuthMode("login");
         setAuthPassword("");
+
         setAuthLoading(false);
 
         return;
       }
 
-      /* ---------------------------------------------------
-         LOGIN
-      --------------------------------------------------- */
+      /* LOGIN */
 
       if (authMode === "login") {
         if (
@@ -1715,10 +1783,12 @@ function App() {
           `${BACKEND_URL}/api/auth/login`,
           {
             method: "POST",
+
             headers: {
               "Content-Type":
                 "application/json",
             },
+
             body: JSON.stringify({
               email: authEmail,
               password: authPassword,
@@ -1749,6 +1819,8 @@ function App() {
         );
 
         setIsLoggedIn(true);
+
+        await loadSavedTrips();
 
         closeAuth();
       }
@@ -1782,6 +1854,8 @@ function App() {
 
     setIsLoggedIn(false);
 
+    setSavedTrips([]);
+
     setAuthName("");
     setAuthEmail("");
     setAuthPassword("");
@@ -1791,61 +1865,103 @@ function App() {
      GENERATE ITINERARY
   ======================================================= */
 
-    const generateItinerary = async () => {
-  // User must be logged in before generating an itinerary
-  if (!isLoggedIn) {
-    setError("Please log in or create an account to generate your itinerary.");
-    openAuth("login");
-    return;
-  }
-
-  if (!destination || !days || !budget || !interests) {
-    setError("Please fill in all the travel details.");
-    return;
-  }
-
-  setLoading(true);
-  setError("");
-  setItinerary("");
-
-  try {
-    const response = await fetch(
-      "https://smarttrips.up.railway.app/api/ai/itinerary",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          destination,
-          days: Number(days),
-          budget: Number(budget),
-          interests,
-        }),
-      }
-    );
-
-    const data = await response.text();
-
-    if (!response.ok) {
-      throw new Error(
-        `Backend error (${response.status}): ${
-          data || "One quick step before you continue!"
-        }`
+  const generateItinerary = async () => {
+    if (!isLoggedIn) {
+      setError(
+        "Please log in or create an account to generate your itinerary."
       );
+
+      openAuth("login");
+
+      return;
     }
 
-    setItinerary(data);
-  } catch (err) {
-    console.error("Itinerary error:", err);
+    if (
+      !destination ||
+      !days ||
+      !budget ||
+      !interests
+    ) {
+      setError(
+        "Please fill in all the travel details."
+      );
 
-    setError(
-      err.message || "Unable to generate itinerary."
-    );
-  } finally {
-    setLoading(false);
-  }
-};
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setItinerary("");
+
+    try {
+      const token =
+        localStorage.getItem(
+          "smarttripToken"
+        );
+
+      const response = await fetch(
+        `${BACKEND_URL}/api/ai/itinerary`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            ...(token
+              ? {
+                  Authorization: `Bearer ${token}`,
+                }
+              : {}),
+          },
+
+          body: JSON.stringify({
+            destination,
+            days: Number(days),
+            budget: Number(budget),
+            interests,
+          }),
+        }
+      );
+
+      const data =
+        await response.text();
+
+      if (!response.ok) {
+        throw new Error(
+          `Backend error (${response.status}): ${
+            data ||
+            "One quick step before you continue!"
+          }`
+        );
+      }
+
+      setItinerary(data);
+
+      setTimeout(() => {
+        document
+          .getElementById(
+            "itinerary-result"
+          )
+          ?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+      }, 100);
+    } catch (err) {
+      console.error(
+        "Itinerary error:",
+        err
+      );
+
+      setError(
+        err.message ||
+          "Unable to generate itinerary."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   /* =======================================================
      PAGE
@@ -1853,13 +1969,11 @@ function App() {
 
   return (
     <div className="app">
-
       {/* ===================================================
           NAVBAR
       =================================================== */}
 
       <nav className="navbar">
-
         <div className="logo">
           <span className="logo-icon">
             ✈
@@ -1875,6 +1989,12 @@ function App() {
             Planner
           </a>
 
+          {isLoggedIn && (
+            <a href="#my-trips">
+              My Trips
+            </a>
+          )}
+
           <a href="#features">
             Features
           </a>
@@ -1885,7 +2005,6 @@ function App() {
         </div>
 
         <div className="navbar-auth">
-
           {!isLoggedIn ? (
             <>
               <button
@@ -1920,9 +2039,7 @@ function App() {
               </button>
             </>
           )}
-
         </div>
-
       </nav>
 
       {/* ===================================================
@@ -1930,9 +2047,7 @@ function App() {
       =================================================== */}
 
       <section className="hero">
-
         <div className="hero-content">
-
           <div className="badge">
             ✨ AI-Powered Travel Planning
           </div>
@@ -1940,6 +2055,7 @@ function App() {
           <h1>
             Your next adventure
             <br />
+
             <span>
               starts here.
             </span>
@@ -1967,13 +2083,10 @@ function App() {
             Start Planning
             <span>→</span>
           </button>
-
         </div>
 
         <div className="hero-visual">
-
           <div className="floating-card card-one">
-
             <span>📍</span>
 
             <div>
@@ -1985,13 +2098,10 @@ function App() {
                 New destinations
               </small>
             </div>
-
           </div>
 
           <div className="travel-circle">
-
             <div className="circle-content">
-
               <span>🌍</span>
 
               <strong>
@@ -2001,13 +2111,10 @@ function App() {
               <small>
                 WITHOUT LIMITS
               </small>
-
             </div>
-
           </div>
 
           <div className="floating-card card-two">
-
             <span>✨</span>
 
             <div>
@@ -2019,11 +2126,8 @@ function App() {
                 Just for you
               </small>
             </div>
-
           </div>
-
         </div>
-
       </section>
 
       {/* ===================================================
@@ -2034,9 +2138,7 @@ function App() {
         className="planner-section"
         id="planner"
       >
-
         <div className="section-heading">
-
           <div className="section-label">
             PLAN YOUR JOURNEY
           </div>
@@ -2054,13 +2156,10 @@ function App() {
             SmartTrip build your perfect
             adventure.
           </p>
-
         </div>
 
         <div className="planner-card">
-
           <div className="input-group destination-input">
-
             <label>
               📍 DESTINATION
             </label>
@@ -2075,13 +2174,10 @@ function App() {
                 )
               }
             />
-
           </div>
 
           <div className="input-row">
-
             <div className="input-group">
-
               <label>
                 📅 DAYS
               </label>
@@ -2097,11 +2193,9 @@ function App() {
                   )
                 }
               />
-
             </div>
 
             <div className="input-group">
-
               <label>
                 💰 BUDGET
               </label>
@@ -2117,13 +2211,10 @@ function App() {
                   )
                 }
               />
-
             </div>
-
           </div>
 
           <div className="input-group">
-
             <label>
               ❤️ INTERESTS
             </label>
@@ -2138,38 +2229,33 @@ function App() {
                 )
               }
             />
-
           </div>
 
           <button
             className="generate-button"
-            onClick={generateItinerary}
+            onClick={
+              generateItinerary
+            }
             disabled={loading}
           >
-
             {loading ? (
               <>
                 <span className="spinner"></span>
-
                 Creating your itinerary...
               </>
             ) : (
               <>
                 ✨ Generate My Itinerary
-
                 <span>→</span>
               </>
             )}
-
           </button>
-
         </div>
 
         {/* ERROR */}
 
         {error && (
           <div className="error-box">
-
             <span>⚠️</span>
 
             <div>
@@ -2181,7 +2267,6 @@ function App() {
                 {error}
               </p>
             </div>
-
           </div>
         )}
 
@@ -2192,11 +2277,8 @@ function App() {
             className="result-section"
             id="itinerary-result"
           >
-
             <div className="result-header">
-
               <div>
-
                 <div className="section-label">
                   YOUR PERSONALIZED PLAN
                 </div>
@@ -2208,11 +2290,9 @@ function App() {
                   </span>{" "}
                   🗺️
                 </h2>
-
               </div>
 
               <div className="trip-summary">
-
                 <span>
                   📍 {destination}
                 </span>
@@ -2220,13 +2300,10 @@ function App() {
                 <span>
                   📅 {days} days
                 </span>
-
               </div>
-
             </div>
 
             <div className="itinerary-card">
-
               <FormattedItinerary
                 rawItinerary={itinerary}
                 destination={destination}
@@ -2234,13 +2311,206 @@ function App() {
                 budget={budget}
                 interests={interests}
               />
-
             </div>
 
+            {/* SAVE TRIP */}
+
+            <div className="save-trip-container">
+              <button
+                className="save-trip-button"
+                onClick={saveTrip}
+                disabled={savingTrip}
+              >
+                {savingTrip ? (
+                  <>
+                    <span className="spinner"></span>
+                    Saving Trip...
+                  </>
+                ) : (
+                  <>
+                    💾 Save This Trip
+                    <span>→</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
-
       </section>
+
+      {/* ===================================================
+          MY TRIPS
+      =================================================== */}
+
+      {isLoggedIn && (
+        <section
+          className="my-trips-section"
+          id="my-trips"
+        >
+          <div className="section-heading">
+            <div className="section-label">
+              YOUR TRAVEL COLLECTION
+            </div>
+
+            <h2>
+              My{" "}
+              <span>
+                Trips
+              </span>{" "}
+              🧳
+            </h2>
+
+            <p>
+              Your saved adventures, all
+              in one place.
+            </p>
+          </div>
+
+          {tripsLoading ? (
+            <div className="my-trips-message">
+              <span className="spinner"></span>
+              Loading your trips...
+            </div>
+          ) : tripsError ? (
+            <div className="error-box">
+              <span>⚠️</span>
+
+              <div>
+                <strong>
+                  Couldn't load your trips
+                </strong>
+
+                <p>
+                  {tripsError}
+                </p>
+
+                <button
+                  className="retry-trips-button"
+                  onClick={
+                    loadSavedTrips
+                  }
+                >
+                  Try Again
+                </button>
+              </div>
+            </div>
+          ) : savedTrips.length === 0 ? (
+            <div className="empty-trips-card">
+              <div className="empty-trips-icon">
+                🌍
+              </div>
+
+              <h3>
+                No saved trips yet
+              </h3>
+
+              <p>
+                Generate an itinerary
+                and save it here for
+                your next adventure.
+              </p>
+
+              <button
+                className="hero-button"
+                onClick={() =>
+                  document
+                    .getElementById(
+                      "planner"
+                    )
+                    ?.scrollIntoView({
+                      behavior:
+                        "smooth",
+                    })
+                }
+              >
+                Create My First Trip
+                <span>→</span>
+              </button>
+            </div>
+          ) : (
+            <div className="saved-trips-grid">
+              {savedTrips.map(
+                (trip) => (
+                  <article
+                    className="saved-trip-card"
+                    key={trip.id}
+                  >
+                    <div className="saved-trip-top">
+                      <div className="saved-trip-icon">
+                        📍
+                      </div>
+
+                      <button
+                        className="delete-trip-button"
+                        onClick={() =>
+                          deleteTrip(
+                            trip.id
+                          )
+                        }
+                        title="Delete trip"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+
+                    <span className="saved-trip-label">
+                      SAVED ADVENTURE
+                    </span>
+
+                    <h3>
+                      {trip.destination}
+                    </h3>
+
+                    <div className="saved-trip-details">
+                      <span>
+                        💰{" "}
+                        {trip.budget}
+                      </span>
+
+                      <span>
+                        ❤️{" "}
+                        {trip.interests}
+                      </span>
+                    </div>
+
+                    {trip.itinerary && (
+                      <details className="saved-trip-itinerary">
+                        <summary>
+                          <span>
+                            🗺️ View itinerary
+                          </span>
+
+                          <span>
+                            +
+                          </span>
+                        </summary>
+
+                        <div className="saved-trip-content">
+                          <FormattedItinerary
+                            rawItinerary={
+                              trip.itinerary
+                            }
+                            destination={
+                              trip.destination
+                            }
+                            days=""
+                            budget={
+                              trip.budget
+                            }
+                            interests={
+                              trip.interests
+                            }
+                          />
+                        </div>
+                      </details>
+                    )}
+                  </article>
+                )
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ===================================================
           FEATURES
@@ -2250,9 +2520,7 @@ function App() {
         className="features-section"
         id="features"
       >
-
         <div className="section-heading">
-
           <div className="section-label">
             WHY SMARTTRIP?
           </div>
@@ -2266,17 +2534,14 @@ function App() {
           </h2>
 
           <p>
-            Everything you need to turn your
-            travel ideas into memorable
+            Everything you need to turn
+            your travel ideas into memorable
             adventures.
           </p>
-
         </div>
 
         <div className="features-grid">
-
           <div className="feature-card">
-
             <div className="feature-icon">
               🤖
             </div>
@@ -2290,11 +2555,9 @@ function App() {
               generated around your interests
               and preferences.
             </p>
-
           </div>
 
           <div className="feature-card">
-
             <div className="feature-icon">
               💰
             </div>
@@ -2307,11 +2570,9 @@ function App() {
               Plan your adventure around the
               budget you actually want to spend.
             </p>
-
           </div>
 
           <div className="feature-card">
-
             <div className="feature-icon">
               🗺️
             </div>
@@ -2325,11 +2586,9 @@ function App() {
               afternoon and evening activities
               for every day.
             </p>
-
           </div>
 
           <div className="feature-card">
-
             <div className="feature-icon">
               ❤️
             </div>
@@ -2343,11 +2602,8 @@ function App() {
               experience, making every trip
               uniquely yours.
             </p>
-
           </div>
-
         </div>
-
       </section>
 
       {/* ===================================================
@@ -2358,9 +2614,7 @@ function App() {
         className="about-section"
         id="about"
       >
-
         <div className="about-content">
-
           <div className="section-label">
             ABOUT SMARTTRIP
           </div>
@@ -2368,6 +2622,7 @@ function App() {
           <h2>
             Less planning.
             <br />
+
             <span>
               More exploring.
             </span>
@@ -2382,11 +2637,9 @@ function App() {
             want and we'll help turn it into
             a journey.
           </p>
-
         </div>
 
         <div className="about-stats">
-
           <div>
             <strong>
               AI
@@ -2416,9 +2669,7 @@ function App() {
               Possible Adventures
             </span>
           </div>
-
         </div>
-
       </section>
 
       {/* ===================================================
@@ -2426,9 +2677,7 @@ function App() {
       =================================================== */}
 
       <footer>
-
         <div className="logo">
-
           <span className="logo-icon">
             ✈
           </span>
@@ -2436,7 +2685,6 @@ function App() {
           <span>
             Smart<span>Trip</span>
           </span>
-
         </div>
 
         <p>
@@ -2447,7 +2695,6 @@ function App() {
         <span className="copyright">
           © 2026 SmartTrip
         </span>
-
       </footer>
 
       {/* ===================================================
@@ -2459,16 +2706,12 @@ function App() {
           className="auth-overlay"
           onClick={closeAuth}
         >
-
           <div
             className="auth-modal"
             onClick={(e) =>
               e.stopPropagation()
             }
           >
-
-            {/* CLOSE */}
-
             <button
               className="auth-close"
               onClick={closeAuth}
@@ -2476,18 +2719,13 @@ function App() {
               ×
             </button>
 
-            {/* ICON */}
-
             <div className="auth-icon">
               {authMode === "login"
                 ? "👋"
                 : "✨"}
             </div>
 
-            {/* TITLE */}
-
             <div className="auth-heading">
-
               <div className="section-label">
                 {authMode === "login"
                   ? "WELCOME BACK"
@@ -2517,16 +2755,13 @@ function App() {
                   ? "Log in to continue planning your next adventure."
                   : "Create your account and start planning amazing trips."}
               </p>
-
             </div>
 
-            {/* FORM */}
-
-            <form onSubmit={handleAuth}>
-
+            <form
+              onSubmit={handleAuth}
+            >
               {authMode === "signup" && (
                 <div className="auth-input-group">
-
                   <label>
                     👤 NAME
                   </label>
@@ -2541,12 +2776,10 @@ function App() {
                       )
                     }
                   />
-
                 </div>
               )}
 
               <div className="auth-input-group">
-
                 <label>
                   📧 EMAIL
                 </label>
@@ -2561,11 +2794,9 @@ function App() {
                     )
                   }
                 />
-
               </div>
 
               <div className="auth-input-group">
-
                 <label>
                   🔒 PASSWORD
                 </label>
@@ -2580,10 +2811,7 @@ function App() {
                     )
                   }
                 />
-
               </div>
-
-              {/* ERROR */}
 
               {authError && (
                 <div className="auth-error">
@@ -2591,22 +2819,17 @@ function App() {
                 </div>
               )}
 
-              {/* SUCCESS */}
-
               {authSuccess && (
                 <div className="auth-success">
                   ✅ {authSuccess}
                 </div>
               )}
 
-              {/* BUTTON */}
-
               <button
                 type="submit"
                 className="auth-submit"
                 disabled={authLoading}
               >
-
                 {authLoading ? (
                   <>
                     <span className="spinner"></span>
@@ -2623,15 +2846,10 @@ function App() {
                     <span>→</span>
                   </>
                 )}
-
               </button>
-
             </form>
 
-            {/* SWITCH */}
-
             <div className="auth-switch">
-
               {authMode === "login" ? (
                 <>
                   Don't have an account?
@@ -2663,14 +2881,10 @@ function App() {
                   </button>
                 </>
               )}
-
             </div>
-
           </div>
-
         </div>
       )}
-
     </div>
   );
 }

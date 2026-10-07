@@ -1,6 +1,7 @@
 package com.smarttrip.backend.model;
 
 import jakarta.persistence.*;
+
 import java.time.LocalDate;
 
 @Entity
@@ -20,6 +21,10 @@ public class Trip {
 
     private String interests;
 
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String itinerary;
+
     @ManyToOne
     @JoinColumn(name = "user_id")
     private User user;
@@ -27,8 +32,12 @@ public class Trip {
     public Trip() {
     }
 
-    public Trip(String destination, LocalDate startDate,
-                LocalDate endDate, Double budget, String interests) {
+    public Trip(String destination,
+                LocalDate startDate,
+                LocalDate endDate,
+                Double budget,
+                String interests) {
+
         this.destination = destination;
         this.startDate = startDate;
         this.endDate = endDate;
@@ -82,6 +91,14 @@ public class Trip {
 
     public void setInterests(String interests) {
         this.interests = interests;
+    }
+
+    public String getItinerary() {
+        return itinerary;
+    }
+
+    public void setItinerary(String itinerary) {
+        this.itinerary = itinerary;
     }
 
     public User getUser() {

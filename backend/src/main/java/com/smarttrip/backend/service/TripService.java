@@ -43,7 +43,8 @@ public class TripService {
 
     public Trip updateTrip(Long id, Trip trip, String email) {
 
-        Trip existingTrip = tripRepository.findByIdAndUserEmail(id, email);
+        Trip existingTrip =
+                tripRepository.findByIdAndUserEmail(id, email);
 
         if (existingTrip == null) {
             return null;
@@ -54,13 +55,15 @@ public class TripService {
         existingTrip.setEndDate(trip.getEndDate());
         existingTrip.setBudget(trip.getBudget());
         existingTrip.setInterests(trip.getInterests());
+        existingTrip.setItinerary(trip.getItinerary());
 
         return tripRepository.save(existingTrip);
     }
 
     public boolean deleteTrip(Long id, String email) {
 
-        Trip existingTrip = tripRepository.findByIdAndUserEmail(id, email);
+        Trip existingTrip =
+                tripRepository.findByIdAndUserEmail(id, email);
 
         if (existingTrip == null) {
             return false;
