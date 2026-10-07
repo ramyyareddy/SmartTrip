@@ -6,7 +6,7 @@ function App() {
   // BACKEND URL
   // =========================
 
-  const BACKEND_URL = "http://localhost:8080";
+  const BACKEND_URL = "https://smarttrip-production-7935.up.railway.app";
 
   // =========================
   // PLANNER STATE
