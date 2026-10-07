@@ -6,8 +6,7 @@ function App() {
   // BACKEND URL
   // =========================
 
-  const BACKEND_URL = "https://smarttrip-production-7935.up.railway.app";
-
+const BACKEND_URL = "https://smarttrips.up.railway.app";
   // =========================
   // PLANNER STATE
   // =========================
