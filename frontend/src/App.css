@@ -602,20 +602,15 @@ button {
 ========================= */
 
 .result-section {
-  width: min(900px, 100%);
-
+  width: min(1000px, 100%);
   margin: 80px auto 0;
 }
 
 .result-header {
   display: flex;
-
   justify-content: space-between;
-
   align-items: flex-end;
-
   gap: 20px;
-
   margin-bottom: 25px;
 }
 
@@ -625,40 +620,413 @@ button {
 
 .trip-summary {
   display: flex;
-
   flex-direction: column;
-
   align-items: flex-end;
-
   gap: 7px;
-
   color: #7a8496;
-
   font-size: 12px;
 }
 
+
+/* =========================
+   ITINERARY MAIN CARD
+========================= */
+
 .itinerary-card {
-  padding: 32px;
+  padding: 28px;
+  background: #f8fafb;
+  border: 1px solid #e5eaf0;
+  border-radius: 18px;
+  box-shadow: 0 15px 40px rgba(23, 32, 51, 0.05);
+}
+
+
+/* =========================
+   FORMATTED ITINERARY
+========================= */
+
+.formatted-itinerary {
+  color: #4b5565;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+
+/* =========================
+   ITINERARY HEADINGS
+========================= */
+
+.formatted-itinerary h3 {
+  margin: 0 0 12px;
+  color: #172033;
+  font-size: 25px;
+  line-height: 1.25;
+  letter-spacing: -0.5px;
+}
+
+.formatted-itinerary h4 {
+  margin: 0 0 10px;
+  color: #172033;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+
+/* =========================
+   INTRO / SUMMARY
+========================= */
+
+.itinerary-intro {
+  padding: 22px;
+  margin-bottom: 20px;
+
+  background: white;
+  border: 1px solid #e8ecf1;
+  border-radius: 15px;
+
+  box-shadow: 0 8px 25px rgba(23, 32, 51, 0.04);
+}
+
+.itinerary-intro p {
+  margin: 5px 0;
+}
+
+.itinerary-intro strong {
+  color: #172033;
+}
+
+
+/* =========================
+   TIP BOX
+========================= */
+
+.itinerary-tip {
+  padding: 18px 20px;
+  margin-bottom: 24px;
+
+  background: #e8f7f3;
+  border: 1px solid #c9eee5;
+  border-radius: 14px;
+
+  color: #087f6a;
+}
+
+.itinerary-tip strong {
+  color: #087f6a;
+}
+
+.itinerary-tip p {
+  margin: 5px 0;
+}
+
+
+/* =========================
+   DAY CARD
+========================= */
+
+.formatted-day {
+  margin-bottom: 22px;
+
+  background: white;
+  border: 1px solid #e5eaf0;
+  border-radius: 18px;
+
+  overflow: hidden;
+
+  box-shadow: 0 10px 30px rgba(23, 32, 51, 0.05);
+}
+
+
+/* =========================
+   DAY HEADER
+========================= */
+
+.formatted-day-header {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+
+  padding: 18px 22px;
+
+  border-bottom: 1px solid #edf0f5;
+
+  background: #fafcfb;
+}
+
+.formatted-day-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-width: 78px;
+  padding: 8px 13px;
+
+  border-radius: 10px;
+
+  background: #079477;
+  color: white;
+
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.formatted-day-title {
+  color: #172033;
+
+  font-size: 19px;
+  font-weight: 800;
+
+  letter-spacing: -0.3px;
+}
+
+
+/* =========================
+   DAY CONTENT
+========================= */
+
+.formatted-day-content {
+  padding: 20px;
+}
+
+
+/* =========================
+   DAY SECTIONS
+========================= */
+
+.formatted-section {
+  margin-bottom: 18px;
+
+  padding: 17px 18px;
+
+  background: #f8fafb;
+
+  border: 1px solid #e8ecf1;
+  border-radius: 13px;
+}
+
+.formatted-section:last-child {
+  margin-bottom: 0;
+}
+
+.formatted-section-title {
+  margin-bottom: 10px;
+
+  color: #079477;
+
+  font-size: 13px;
+  font-weight: 900;
+
+  letter-spacing: 0.2px;
+}
+
+
+/* =========================
+   LISTS
+========================= */
+
+.formatted-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.formatted-list li {
+  margin-bottom: 7px;
+
+  color: #4b5565;
+
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.formatted-list li:last-child {
+  margin-bottom: 0;
+}
+
+
+/* =========================
+   NORMAL PARAGRAPHS
+========================= */
+
+.formatted-paragraph {
+  margin: 8px 0;
+
+  color: #4b5565;
+
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+
+/* =========================
+   TABLE
+========================= */
+
+.formatted-table {
+  width: 100%;
+  margin: 10px 0;
+
+  overflow: hidden;
+
+  border: 1px solid #e5eaf0;
+  border-radius: 12px;
+
+  background: white;
+}
+
+.formatted-table-row {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+
+  border-bottom: 1px solid #edf0f5;
+}
+
+.formatted-table-row:last-child {
+  border-bottom: none;
+}
+
+.formatted-table-cell {
+  padding: 12px 14px;
+
+  color: #4b5565;
+
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.formatted-table-cell:first-child {
+  font-weight: 800;
+  color: #172033;
+  background: #fafcfb;
+}
+
+.formatted-table-header {
+  background: #e8f7f3;
+}
+
+.formatted-table-header .formatted-table-cell {
+  color: #087f6a;
+  font-weight: 800;
+}
+
+
+/* =========================
+   EXPENSES
+========================= */
+
+.formatted-expenses {
+  padding: 17px 18px;
 
   background: #f8fafb;
 
   border: 1px solid #e5eaf0;
-
-  border-radius: 18px;
-
-  box-shadow: 0 15px 40px rgba(23, 32, 51, 0.05);
+  border-radius: 13px;
 }
 
-.itinerary-card pre {
-  white-space: pre-wrap;
+.formatted-expense-total {
+  margin-top: 10px;
+  padding: 10px 12px;
 
-  font-family: inherit;
+  background: #e8f7f3;
 
-  color: #4b5565;
+  border-radius: 9px;
 
-  font-size: 14px;
+  color: #087f6a;
 
-  line-height: 1.9;
+  font-weight: 800;
+}
+
+
+/* =========================
+   BOLD TEXT
+========================= */
+
+.formatted-itinerary strong {
+  color: #172033;
+  font-weight: 800;
+}
+
+
+/* =========================
+   HORIZONTAL DIVIDER
+========================= */
+
+.formatted-divider {
+  height: 1px;
+
+  margin: 22px 0;
+
+  background: #e5eaf0;
+}
+
+
+/* =========================
+   MOBILE ITINERARY
+========================= */
+
+@media (max-width: 750px) {
+
+  .result-section {
+    margin-top: 60px;
+  }
+
+  .itinerary-card {
+    padding: 18px;
+  }
+
+  .formatted-day-header {
+    align-items: flex-start;
+    flex-direction: column;
+
+    gap: 10px;
+
+    padding: 16px 18px;
+  }
+
+  .formatted-day-content {
+    padding: 15px;
+  }
+
+  .formatted-day-title {
+    font-size: 17px;
+  }
+
+  .formatted-section {
+    padding: 14px;
+  }
+
+  .formatted-table-row {
+    grid-template-columns: 1fr;
+  }
+
+  .formatted-table-cell:first-child {
+    border-bottom: 1px solid #edf0f5;
+  }
+}
+
+
+@media (max-width: 480px) {
+
+  .itinerary-card {
+    padding: 14px;
+    border-radius: 15px;
+  }
+
+  .formatted-itinerary h3 {
+    font-size: 21px;
+  }
+
+  .formatted-day-number {
+    min-width: auto;
+  }
+
+  .formatted-day-title {
+    font-size: 16px;
+  }
+
+  .formatted-list li,
+  .formatted-table-cell {
+    font-size: 12px;
+  }
 }
 
 /* =========================
