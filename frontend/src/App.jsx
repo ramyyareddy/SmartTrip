@@ -1,46 +1,1618 @@
 import { useState } from "react";
 import "./App.css";
 
-function App() {
-  // ============================================================
-  // BACKEND URL
-  // ============================================================
+/* =========================================================
+   SMARTTRIP BACKEND
+========================================================= */
 
-  const BACKEND_URL = "https://smarttrips.up.railway.app";
+const BACKEND_URL = "https://smarttrips.up.railway.app";
 
-  // ============================================================
-  // PLANNER STATE
-  // ============================================================
+/* =========================================================
+   TEXT HELPERS
+========================================================= */
 
-  const [destination, setDestination] = useState("");
-  const [days, setDays] = useState("");
-  const [budget, setBudget] = useState("");
-  const [interests, setInterests] = useState("");
+const cleanText = (text) =>
+  String(text || "")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
 
-  const [itinerary, setItinerary] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+const cleanHeading = (text) =>
+  cleanText(String(text || "").replace(/^#{1,6}\s*/, ""));
 
-  // ============================================================
-  // AUTH STATE
-  // ============================================================
+const removeListMarker = (text) =>
+  String(text || "")
+    .replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "")
+    .trim();
 
-  const [authMode, setAuthMode] = useState(null);
-  const [authLoading, setAuthLoading] = useState(false);
-  const [authError, setAuthError] = useState("");
-  const [authSuccess, setAuthSuccess] = useState("");
+const normalizeKey = (text) =>
+  cleanText(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 
-  const [authName, setAuthName] = useState("");
-  const [authEmail, setAuthEmail] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
+const parseTableRow = (line) => {
+  if (!line || !line.includes("|")) return null;
 
-  const [isLoggedIn, setIsLoggedIn] = useState(
-    !!localStorage.getItem("smarttripToken")
+  let cells = line.split("|").map((cell) => cell.trim());
+
+  if (cells[0] === "") {
+    cells.shift();
+  }
+
+  if (cells[cells.length - 1] === "") {
+    cells.pop();
+  }
+
+  return cells;
+};
+
+const isTableSeparator = (line) => {
+  const cells = parseTableRow(line);
+
+  if (!cells || !cells.length) {
+    return false;
+  }
+
+  return cells.every((cell) =>
+    /^:?-{2,}:?$/.test(cell.replace(/\s/g, ""))
+  );
+};
+
+const isDayHeading = (line) => {
+  const text = cleanHeading(line);
+
+  return text.match(
+    /^Day\s+(\d+)\s*(?:[-–—:]\s*)?(.*)$/i
+  );
+};
+
+const isTimeHeading = (line) => {
+  const text = cleanHeading(line);
+
+  return text.match(
+    /^(Morning|Afternoon|Evening|Shopping|Transport|Food|Meals?)$/i
+  );
+};
+
+const isSummaryHeading = (line) => {
+  const text = cleanHeading(line).toLowerCase();
+
+  return (
+    text.includes("estimated expenses") ||
+    text.includes("expense summary") ||
+    text.includes("budget summary") ||
+    text.includes("cost summary") ||
+    text.includes("final budget") ||
+    text.includes("total cost") ||
+    text.includes("estimated total")
+  );
+};
+
+const isTipsHeading = (line) => {
+  const text = cleanHeading(line).toLowerCase();
+
+  return (
+    text.includes("smarttrip tips") ||
+    text.includes("travel tips") ||
+    text === "tips" ||
+    text.includes("tips &")
+  );
+};
+
+const extractCost = (text) => {
+  const value = cleanText(text);
+
+  if (!value) {
+    return "";
+  }
+
+  const parenthetical = value.match(
+    /\(([^)]*(?:\d[\d.,]*\s*[kKmM]?|free)[^)]*)\)\s*\.?$/i
   );
 
-  // ============================================================
-  // AUTH MODAL
-  // ============================================================
+  if (parenthetical) {
+    return cleanText(parenthetical[1]);
+  }
+
+  const direct = value.match(
+    /(?:≈|~|about|approx\.?)?\s*(?:₹|\$|€|£)?\s*\d[\d.,]*\s*(?:k|K|m|M|[A-Z]{2,4})?\b/
+  );
+
+  if (direct) {
+    return cleanText(direct[0]);
+  }
+
+  if (/^free$/i.test(value)) {
+    return "Free";
+  }
+
+  return "";
+};
+
+const splitActivityLine = (rawText) => {
+  let text = removeListMarker(rawText);
+  text = cleanText(text);
+
+  if (!text) {
+    return {
+      activity: "",
+      place: "",
+      notes: "",
+      cost: "",
+    };
+  }
+
+  /*
+    Example:
+
+    Temple walk — Tirta Empul — Approx. Cost:
+    Free entry; shared motorbike (≈ 30 k)
+  */
+
+  let notes = "";
+  let cost = "";
+
+  const costMarker = text.match(
+    /(?:—|-)?\s*Approx\.?\s*Cost\s*:\s*(.*)$/i
+  );
+
+  if (costMarker) {
+    const beforeCost = text
+      .slice(0, costMarker.index)
+      .replace(/[—-]\s*$/, "")
+      .trim();
+
+    notes = cleanText(costMarker[1]);
+
+    const extractedCost = extractCost(notes);
+
+    if (extractedCost) {
+      cost = extractedCost;
+
+      notes = notes
+        .replace(
+          new RegExp(
+            "\\s*\\(" +
+              extractedCost.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+              "\\)\\s*\\.?$",
+            "i"
+          ),
+          ""
+        )
+        .trim();
+    }
+
+    text = beforeCost;
+  }
+
+  /*
+    Example:
+
+    Temple walk — Tirta Empul
+  */
+
+  const parts = text
+    .split(/\s+[—–-]\s+/)
+    .map((part) => cleanText(part))
+    .filter(Boolean);
+
+  let activity = "";
+  let place = "";
+
+  if (parts.length >= 2) {
+    activity = parts[0];
+    place = parts[1];
+
+    if (parts.length > 2) {
+      notes = notes
+        ? `${parts.slice(2).join(" — ")} ${notes}`
+        : parts.slice(2).join(" — ");
+    }
+  } else {
+    activity = parts[0] || text;
+  }
+
+  /*
+    If cost is still empty, try to find one from notes.
+  */
+  if (!cost && notes) {
+    const foundCost = extractCost(notes);
+
+    if (foundCost) {
+      cost = foundCost;
+    }
+  }
+
+  /*
+    Remove obvious placeholder/header rows.
+  */
+  const normalized = activity.toLowerCase();
+
+  if (
+    normalized === "activity" ||
+    normalized.includes("activity — place") ||
+    normalized.includes("activity - place") ||
+    normalized === "place" ||
+    normalized === "approx. cost"
+  ) {
+    return {
+      activity: "",
+      place: "",
+      notes: "",
+      cost: "",
+    };
+  }
+
+  return {
+    activity,
+    place,
+    notes,
+    cost,
+  };
+};
+
+const createEmptySection = (title) => ({
+  key: normalizeKey(title),
+  title,
+  items: [],
+});
+
+const createEmptyDay = (number, title = "") => ({
+  number: String(number),
+  title: cleanHeading(title) || "",
+  sections: [],
+  total: "",
+  places: [],
+  food: [],
+});
+
+const getOrCreateSection = (day, title) => {
+  const cleanTitle = cleanHeading(title);
+
+  let section = day.sections.find(
+    (item) =>
+      item.title.toLowerCase() === cleanTitle.toLowerCase()
+  );
+
+  if (!section) {
+    section = createEmptySection(cleanTitle);
+    day.sections.push(section);
+  }
+
+  return section;
+};
+
+const findColumnIndex = (headers, names) => {
+  const normalizedHeaders = headers.map((header) =>
+    normalizeKey(header)
+  );
+
+  for (const name of names) {
+    const target = normalizeKey(name);
+
+    const exact = normalizedHeaders.indexOf(target);
+
+    if (exact !== -1) {
+      return exact;
+    }
+  }
+
+  return -1;
+};
+
+const addTableRowToDay = (
+  day,
+  headers,
+  cells,
+  fallbackSection
+) => {
+  if (!cells || !cells.length) {
+    return;
+  }
+
+  const segmentIndex = findColumnIndex(headers, [
+    "segment",
+    "time",
+    "period",
+    "when",
+  ]);
+
+  const activityIndex = findColumnIndex(headers, [
+    "activity",
+    "activities",
+    "what",
+    "experience",
+  ]);
+
+  const placeIndex = findColumnIndex(headers, [
+    "place",
+    "location",
+    "where",
+    "destination",
+  ]);
+
+  const notesIndex = findColumnIndex(headers, [
+    "notes",
+    "note",
+    "details",
+    "description",
+  ]);
+
+  const costIndex = findColumnIndex(headers, [
+    "approx cost",
+    "approx. cost",
+    "cost",
+    "price",
+    "estimated cost",
+    "budget",
+  ]);
+
+  const segment =
+    segmentIndex >= 0
+      ? cleanText(cells[segmentIndex])
+      : "";
+
+  const activity =
+    activityIndex >= 0
+      ? cleanText(cells[activityIndex])
+      : cleanText(cells[0]);
+
+  const place =
+    placeIndex >= 0
+      ? cleanText(cells[placeIndex])
+      : "";
+
+  const notes =
+    notesIndex >= 0
+      ? cleanText(cells[notesIndex])
+      : "";
+
+  const cost =
+    costIndex >= 0
+      ? cleanText(cells[costIndex])
+      : "";
+
+  const lowerActivity = activity.toLowerCase();
+  const lowerSegment = segment.toLowerCase();
+
+  /*
+    Daily total row.
+  */
+  if (
+    lowerSegment.includes("total") ||
+    lowerActivity.includes("daily total") ||
+    lowerActivity.includes("estimated daily total") ||
+    lowerActivity.includes("total")
+  ) {
+    const totalValue =
+      cost ||
+      notes ||
+      cells[cells.length - 1] ||
+      "";
+
+    if (totalValue) {
+      day.total = cleanText(totalValue);
+    }
+
+    return;
+  }
+
+  /*
+    Ignore table headers accidentally repeated as rows.
+  */
+  if (
+    lowerActivity === "activity" ||
+    lowerActivity.includes("activity — place") ||
+    lowerActivity.includes("activity - place")
+  ) {
+    return;
+  }
+
+  if (!activity && !place && !notes && !cost) {
+    return;
+  }
+
+  let targetSection = segment;
+
+  if (!targetSection) {
+    targetSection = fallbackSection || "Activities";
+  }
+
+  /*
+    Normalize section names.
+  */
+  const knownSection = [
+    "morning",
+    "afternoon",
+    "evening",
+    "shopping",
+    "transport",
+    "food",
+    "meals",
+  ].find(
+    (item) =>
+      targetSection.toLowerCase().includes(item)
+  );
+
+  if (knownSection) {
+    targetSection =
+      knownSection.charAt(0).toUpperCase() +
+      knownSection.slice(1);
+  }
+
+  const section = getOrCreateSection(
+    day,
+    targetSection
+  );
+
+  section.items.push({
+    activity,
+    place,
+    notes,
+    cost,
+  });
+};
+
+const parseItinerary = (
+  raw,
+  fallbackDestination,
+  fallbackDays,
+  fallbackBudget,
+  fallbackInterests
+) => {
+  const parsed = {
+    title:
+      fallbackDestination || "Your SmartTrip Journey",
+    overview: [],
+    meta: {
+      budget: fallbackBudget
+        ? String(fallbackBudget)
+        : "",
+      interests: fallbackInterests || "",
+      currency: "",
+      transport: "",
+    },
+    days: [],
+    budgetSummary: [],
+    finalTotal: "",
+    finalTips: [],
+  };
+
+  const lines = String(raw || "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim());
+
+  let currentDay = null;
+  let currentSection = null;
+  let mode = "overview";
+
+  for (let i = 0; i < lines.length; i++) {
+    const originalLine = lines[i];
+
+    if (!originalLine) {
+      continue;
+    }
+
+    const line = originalLine.trim();
+
+    /*
+      -------------------------------------------------------
+      DAY HEADING
+      -------------------------------------------------------
+    */
+
+    const dayMatch = isDayHeading(line);
+
+    if (dayMatch) {
+      const dayNumber = dayMatch[1];
+      const dayTitle = dayMatch[2];
+
+      currentDay = createEmptyDay(
+        dayNumber,
+        dayTitle
+      );
+
+      parsed.days.push(currentDay);
+
+      currentSection = null;
+      mode = "day";
+
+      continue;
+    }
+
+    /*
+      -------------------------------------------------------
+      SUMMARY / TIPS HEADINGS
+      -------------------------------------------------------
+    */
+
+    if (isTipsHeading(line)) {
+      mode = "tips";
+      currentSection = null;
+      continue;
+    }
+
+    if (isSummaryHeading(line)) {
+      mode = "summary";
+      currentSection = null;
+      continue;
+    }
+
+    /*
+      -------------------------------------------------------
+      MARKDOWN TABLE
+      -------------------------------------------------------
+    */
+
+    if (
+      line.includes("|") &&
+      i + 1 < lines.length &&
+      isTableSeparator(lines[i + 1])
+    ) {
+      const headers = parseTableRow(line);
+
+      if (headers && headers.length) {
+        i += 2;
+
+        while (
+          i < lines.length &&
+          lines[i] &&
+          lines[i].includes("|") &&
+          !isDayHeading(lines[i])
+        ) {
+          const cells = parseTableRow(lines[i]);
+
+          if (cells) {
+            if (currentDay) {
+              addTableRowToDay(
+                currentDay,
+                headers,
+                cells,
+                currentSection?.title || "Activities"
+              );
+            } else {
+              /*
+                Summary table before/after days.
+              */
+              const rowLabel = cleanText(
+                cells[0] || ""
+              );
+
+              const rowValue = cleanText(
+                cells[cells.length - 1] || ""
+              );
+
+              if (
+                rowLabel &&
+                rowValue &&
+                rowLabel.toLowerCase() !==
+                  "item"
+              ) {
+                parsed.budgetSummary.push({
+                  item: rowLabel,
+                  amount: rowValue,
+                  usd: "",
+                });
+              }
+            }
+          }
+
+          i++;
+        }
+
+        i--;
+        continue;
+      }
+    }
+
+    /*
+      -------------------------------------------------------
+      TIME / SECTION HEADING
+      -------------------------------------------------------
+    */
+
+    const timeMatch = isTimeHeading(line);
+
+    if (timeMatch && currentDay) {
+      currentSection = getOrCreateSection(
+        currentDay,
+        timeMatch[1]
+      );
+
+      mode = "day";
+
+      continue;
+    }
+
+    /*
+      -------------------------------------------------------
+      METADATA
+      -------------------------------------------------------
+    */
+
+    const cleaned = cleanText(line);
+
+    const metadataMatch = cleaned.match(
+      /^(?:[-•*]\s*)?(Budget|Interests|Currency|Transport)\s*:?\s*(.+)$/i
+    );
+
+    if (metadataMatch) {
+      const key = metadataMatch[1].toLowerCase();
+
+      parsed.meta[key] = cleanText(
+        metadataMatch[2]
+      );
+
+      continue;
+    }
+
+    /*
+      Handle AI output such as:
+
+      BUDGET 600000
+      INTERESTS food,art
+      CURRENCY Travel Budget
+    */
+
+    const inlineMeta = cleaned.match(
+      /^(Budget|Interests|Currency|Transport)\s+(.+)$/i
+    );
+
+    if (inlineMeta) {
+      const key = inlineMeta[1].toLowerCase();
+
+      parsed.meta[key] = cleanText(
+        inlineMeta[2]
+      );
+
+      continue;
+    }
+
+    /*
+      -------------------------------------------------------
+      OVERVIEW
+      -------------------------------------------------------
+    */
+
+    if (
+      mode === "overview" &&
+      !currentDay
+    ) {
+      const heading = cleanHeading(line);
+
+      if (
+        heading &&
+        !heading.startsWith("YOUR SMARTTRIP PLAN") &&
+        !heading.startsWith("SMARTTRIP")
+      ) {
+        if (
+          !heading.match(
+            /^(Budget|Interests|Currency|Transport)/i
+          ) &&
+          !heading.match(
+            /^(Estimated|Final|Tips)/i
+          )
+        ) {
+          parsed.overview.push(heading);
+        }
+      }
+
+      continue;
+    }
+
+    /*
+      -------------------------------------------------------
+      DAY CONTENT
+      -------------------------------------------------------
+    */
+
+    if (currentDay && mode === "day") {
+      const plainLine = cleanText(line);
+
+      /*
+        Day total:
+        Approx. Cost: 135 k
+        Estimated Daily Total: 135 k
+      */
+
+      const totalMatch = plainLine.match(
+        /^(?:Approx\.?\s*Cost|Estimated Daily Total|Daily Total|Total)\s*:?\s*(.+)$/i
+      );
+
+      if (totalMatch) {
+        currentDay.total = cleanText(
+          totalMatch[1]
+        );
+
+        continue;
+      }
+
+      /*
+        Places list.
+      */
+      if (
+        /^places?\s*:/i.test(plainLine)
+      ) {
+        const places = plainLine
+          .replace(/^places?\s*:/i, "")
+          .split(/[,•]/)
+          .map((item) => cleanText(item))
+          .filter(Boolean);
+
+        currentDay.places.push(...places);
+
+        continue;
+      }
+
+      /*
+        Food list.
+      */
+      if (
+        /^food\s*:/i.test(plainLine)
+      ) {
+        const foods = plainLine
+          .replace(/^food\s*:/i, "")
+          .split(/[,•]/)
+          .map((item) => cleanText(item))
+          .filter(Boolean);
+
+        currentDay.food.push(...foods);
+
+        continue;
+      }
+
+      /*
+        Bulleted activity.
+      */
+      const isBullet = /^[-*•]\s+/.test(line);
+
+      if (isBullet) {
+        const activity = splitActivityLine(line);
+
+        if (
+          activity.activity &&
+          !activity.activity
+            .toLowerCase()
+            .includes("approx. cost")
+        ) {
+          const section =
+            currentSection ||
+            getOrCreateSection(
+              currentDay,
+              "Activities"
+            );
+
+          section.items.push(activity);
+        }
+
+        continue;
+      }
+
+      /*
+        Some AI outputs use:
+
+        Temple walk — Tirta Empul — Approx. Cost...
+        
+        without a bullet.
+      */
+      if (
+        plainLine.includes("Approx. Cost") ||
+        plainLine.includes(" — ")
+      ) {
+        const activity =
+          splitActivityLine(plainLine);
+
+        if (activity.activity) {
+          const section =
+            currentSection ||
+            getOrCreateSection(
+              currentDay,
+              "Activities"
+            );
+
+          section.items.push(activity);
+          continue;
+        }
+      }
+
+      /*
+        Standalone cost.
+      */
+      const standaloneCost = plainLine.match(
+        /^(?:Approx\.?\s*Cost(?:\s*\([^)]*\))?)\s*:?\s*(.+)$/i
+      );
+
+      if (standaloneCost) {
+        currentDay.total = cleanText(
+          standaloneCost[1]
+        );
+
+        continue;
+      }
+    }
+
+    /*
+      -------------------------------------------------------
+      SUMMARY
+      -------------------------------------------------------
+    */
+
+    if (mode === "summary") {
+      const summaryLine = removeListMarker(
+        cleanText(line)
+      );
+
+      if (!summaryLine) {
+        continue;
+      }
+
+      const totalMatch = summaryLine.match(
+        /^(?:Total|Estimated Total|Final Total)\s*:?\s*(.+)$/i
+      );
+
+      if (totalMatch) {
+        parsed.finalTotal = cleanText(
+          totalMatch[1]
+        );
+
+        continue;
+      }
+
+      /*
+        Skip table-like labels that aren't useful
+        as actual budget rows.
+      */
+      if (
+        /^(?:Approx\.?\s*Cost|Amount|Item|Day)$/i.test(
+          summaryLine
+        )
+      ) {
+        continue;
+      }
+
+      const daySummary = summaryLine.match(
+        /^(Day\s*\d+)\s*:?\s*(.+)$/i
+      );
+
+      if (daySummary) {
+        parsed.budgetSummary.push({
+          item: cleanText(daySummary[1]),
+          amount: cleanText(daySummary[2]),
+          usd: "",
+        });
+
+        continue;
+      }
+
+      /*
+        A line containing only a cost amount.
+        We'll attach it to days later if possible.
+      */
+      if (
+        /^\s*(?:≈|~|₹|\$|€|£)?\s*\d[\d.,]*\s*[kKmM]?(?:\s*[A-Z]{2,4})?\s*$/i.test(
+          summaryLine
+        )
+      ) {
+        parsed.budgetSummary.push({
+          item: "",
+          amount: summaryLine,
+          usd: "",
+        });
+
+        continue;
+      }
+
+      /*
+        Generic summary row:
+        Food: 100 k
+        Transport: 55 k
+      */
+      const colonSummary =
+        summaryLine.match(
+          /^(.+?)\s*:\s*(.+)$/
+        );
+
+      if (colonSummary) {
+        parsed.budgetSummary.push({
+          item: cleanText(
+            colonSummary[1]
+          ),
+          amount: cleanText(
+            colonSummary[2]
+          ),
+          usd: "",
+        });
+      }
+
+      continue;
+    }
+
+    /*
+      -------------------------------------------------------
+      TIPS
+      -------------------------------------------------------
+    */
+
+    if (mode === "tips") {
+      const tip = removeListMarker(
+        cleanText(line)
+      );
+
+      if (
+        tip &&
+        !tip.match(
+          /^SmartTrip Tips$/i
+        )
+      ) {
+        parsed.finalTips.push(tip);
+      }
+
+      continue;
+    }
+  }
+
+  /*
+    ---------------------------------------------------------
+    FALLBACK DAY TOTALS
+    ---------------------------------------------------------
+  */
+
+  if (
+    parsed.budgetSummary.length === 0 &&
+    parsed.days.length > 0
+  ) {
+    parsed.days.forEach((day) => {
+      if (day.total) {
+        parsed.budgetSummary.push({
+          item: `Day ${day.number}`,
+          amount: day.total,
+          usd: "",
+        });
+      }
+    });
+  }
+
+  /*
+    ---------------------------------------------------------
+    FALLBACK DAY COUNT
+    ---------------------------------------------------------
+  */
+
+  if (
+    parsed.days.length === 0 &&
+    Number(fallbackDays) > 0
+  ) {
+    for (
+      let i = 1;
+      i <= Number(fallbackDays);
+      i++
+    ) {
+      parsed.days.push(
+        createEmptyDay(i)
+      );
+    }
+  }
+
+  /*
+    ---------------------------------------------------------
+    REMOVE EMPTY DAYS
+    ---------------------------------------------------------
+  */
+
+  parsed.days = parsed.days.filter(
+    (day) =>
+      day.title ||
+      day.sections.length ||
+      day.total ||
+      day.places.length ||
+      day.food.length
+  );
+
+  return parsed;
+};
+
+/* =========================================================
+   INLINE TEXT RENDERER
+========================================================= */
+
+const renderInlineText = (text) => {
+  const value = String(text || "");
+
+  const parts = value.split(
+    /(\*\*[^*]+\*\*|\*[^*]+\*)/g
+  );
+
+  return parts.map((part, index) => {
+    if (
+      part.startsWith("**") &&
+      part.endsWith("**")
+    ) {
+      return (
+        <strong key={index}>
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+
+    if (
+      part.startsWith("*") &&
+      part.endsWith("*")
+    ) {
+      return (
+        <em key={index}>
+          {part.slice(1, -1)}
+        </em>
+      );
+    }
+
+    return <span key={index}>{part}</span>;
+  });
+};
+
+/* =========================================================
+   ITINERARY CARD COMPONENTS
+========================================================= */
+
+const ActivityRow = ({ item }) => {
+  return (
+    <div className="structured-activity">
+      <div className="structured-activity-main">
+
+        <div className="activity-field">
+          <span className="activity-field-label">
+            ACTIVITY
+          </span>
+
+          <strong>
+            {renderInlineText(
+              item.activity || "Activity"
+            )}
+          </strong>
+        </div>
+
+        {item.place && (
+          <div className="activity-field">
+            <span className="activity-field-label">
+              PLACE
+            </span>
+
+            <span className="activity-place">
+              📍 {renderInlineText(item.place)}
+            </span>
+          </div>
+        )}
+
+        {item.notes && (
+          <div className="activity-field activity-notes">
+            <span className="activity-field-label">
+              NOTES
+            </span>
+
+            <p>
+              {renderInlineText(item.notes)}
+            </p>
+          </div>
+        )}
+
+      </div>
+
+      {item.cost && (
+        <div className="activity-cost">
+          <span>COST</span>
+          <strong>{item.cost}</strong>
+        </div>
+      )}
+
+    </div>
+  );
+};
+
+const TimeSection = ({ section }) => {
+  if (!section || !section.items.length) {
+    return null;
+  }
+
+  return (
+    <div className="time-card">
+
+      <div className="time-card-header">
+        <div className="time-icon">
+          {section.title
+            .toLowerCase()
+            .includes("morning")
+            ? "🌅"
+            : section.title
+                .toLowerCase()
+                .includes("afternoon")
+            ? "☀️"
+            : section.title
+                .toLowerCase()
+                .includes("evening")
+            ? "🌙"
+            : section.title
+                .toLowerCase()
+                .includes("shopping")
+            ? "🛍️"
+            : section.title
+                .toLowerCase()
+                .includes("transport")
+            ? "🚕"
+            : "✨"}
+        </div>
+
+        <div>
+          <span className="time-card-kicker">
+            {section.title.toUpperCase()}
+          </span>
+
+          <h4>{section.title}</h4>
+        </div>
+      </div>
+
+      <div className="time-card-body">
+        {section.items.map((item, index) => (
+          <ActivityRow
+            key={`${section.key}-${index}`}
+            item={item}
+          />
+        ))}
+      </div>
+
+    </div>
+  );
+};
+
+const DayCard = ({ day }) => {
+  return (
+    <article className="day-card">
+
+      <div className="day-card-header">
+
+        <div className="day-pill">
+          DAY {day.number}
+        </div>
+
+        <div className="day-heading-content">
+          <span className="day-label">
+            SMARTTRIP ITINERARY
+          </span>
+
+          <h3>
+            {day.title ||
+              `Day ${day.number}`}
+          </h3>
+        </div>
+
+      </div>
+
+      <div className="day-card-body">
+
+        {day.sections.map(
+          (section, index) => (
+            <TimeSection
+              key={`${day.number}-${index}`}
+              section={section}
+            />
+          )
+        )}
+
+        {day.places.length > 0 && (
+          <div className="side-block">
+            <div className="side-block-title">
+              📍 PLACES
+            </div>
+
+            <div className="side-block-content">
+              {day.places.map(
+                (place, index) => (
+                  <span key={index}>
+                    {place}
+                  </span>
+                )
+              )}
+            </div>
+          </div>
+        )}
+
+        {day.food.length > 0 && (
+          <div className="side-block">
+            <div className="side-block-title">
+              🍜 FOOD
+            </div>
+
+            <div className="side-block-content">
+              {day.food.map(
+                (food, index) => (
+                  <span key={index}>
+                    {food}
+                  </span>
+                )
+              )}
+            </div>
+          </div>
+        )}
+
+        {day.total && (
+          <div className="day-total-card">
+            <div>
+              <span>ESTIMATED DAY TOTAL</span>
+              <strong>
+                Day {day.number}
+              </strong>
+            </div>
+
+            <div className="day-total-amount">
+              {day.total}
+            </div>
+          </div>
+        )}
+
+      </div>
+
+    </article>
+  );
+};
+
+const BudgetSummary = ({
+  summary,
+  finalTotal,
+}) => {
+  if (
+    (!summary || !summary.length) &&
+    !finalTotal
+  ) {
+    return null;
+  }
+
+  return (
+    <div className="final-budget-card">
+
+      <div className="final-budget-header">
+        <div className="budget-icon">
+          💰
+        </div>
+
+        <div>
+          <span className="budget-kicker">
+            BUDGET OVERVIEW
+          </span>
+
+          <h3>
+            Estimated Expenses
+          </h3>
+        </div>
+      </div>
+
+      {summary && summary.length > 0 && (
+        <div className="budget-summary-list">
+
+          {summary.map(
+            (row, index) => (
+              <div
+                className="budget-summary-row"
+                key={index}
+              >
+                <span>
+                  {row.item ||
+                    `Expense ${index + 1}`}
+                </span>
+
+                <strong>
+                  {row.amount}
+                </strong>
+              </div>
+            )
+          )}
+
+        </div>
+      )}
+
+      {finalTotal && (
+        <div className="budget-final-total">
+          <div>
+            <span>
+              ESTIMATED TOTAL
+            </span>
+
+            <strong>
+              Total trip cost
+            </strong>
+          </div>
+
+          <strong>
+            {finalTotal}
+          </strong>
+        </div>
+      )}
+
+    </div>
+  );
+};
+
+const TipsCard = ({ tips }) => {
+  if (!tips || !tips.length) {
+    return null;
+  }
+
+  return (
+    <div className="smarttrip-tip-box">
+
+      <div className="tip-box-header">
+        <span className="tip-icon">
+          ✨
+        </span>
+
+        <div>
+          <span>
+            SMARTTRIP
+          </span>
+
+          <h3>
+            Tips for your trip
+          </h3>
+        </div>
+      </div>
+
+      <div className="tip-list">
+        {tips.map(
+          (tip, index) => (
+            <div
+              className="tip-item"
+              key={index}
+            >
+              <span>✓</span>
+              <p>
+                {renderInlineText(tip)}
+              </p>
+            </div>
+          )
+        )}
+      </div>
+
+    </div>
+  );
+};
+
+/* =========================================================
+   FULL ITINERARY RENDERER
+========================================================= */
+
+const FormattedItinerary = ({
+  rawItinerary,
+  destination,
+  days,
+  budget,
+  interests,
+}) => {
+  const parsed = parseItinerary(
+    rawItinerary,
+    destination,
+    days,
+    budget,
+    interests
+  );
+
+  return (
+    <div className="formatted-itinerary">
+
+      {/* OVERVIEW */}
+
+      <div className="itinerary-overview">
+
+        <div className="overview-top">
+
+          <div>
+            <span className="overview-kicker">
+              🌴 YOUR SMARTTRIP PLAN
+            </span>
+
+            <h3>
+              {parsed.title ||
+                destination}
+            </h3>
+          </div>
+
+          <div className="overview-destination">
+            📍 {destination}
+          </div>
+
+        </div>
+
+        <div className="overview-meta">
+
+          <div className="overview-meta-item">
+            <span>📅</span>
+
+            <div>
+              <small>DURATION</small>
+              <strong>
+                {days} Days
+              </strong>
+            </div>
+          </div>
+
+          <div className="overview-meta-item">
+            <span>💰</span>
+
+            <div>
+              <small>BUDGET</small>
+              <strong>
+                {parsed.meta.budget ||
+                  budget}
+              </strong>
+            </div>
+          </div>
+
+          <div className="overview-meta-item">
+            <span>❤️</span>
+
+            <div>
+              <small>INTERESTS</small>
+              <strong>
+                {parsed.meta.interests ||
+                  interests}
+              </strong>
+            </div>
+          </div>
+
+          {parsed.meta.currency && (
+            <div className="overview-meta-item">
+              <span>💱</span>
+
+              <div>
+                <small>CURRENCY</small>
+                <strong>
+                  {parsed.meta.currency}
+                </strong>
+              </div>
+            </div>
+          )}
+
+          {parsed.meta.transport && (
+            <div className="overview-meta-item">
+              <span>🚕</span>
+
+              <div>
+                <small>TRANSPORT</small>
+                <strong>
+                  {parsed.meta.transport}
+                </strong>
+              </div>
+            </div>
+          )}
+
+        </div>
+
+        {parsed.overview.length > 0 && (
+          <div className="overview-notes">
+            {parsed.overview.map(
+              (item, index) => (
+                <p key={index}>
+                  {renderInlineText(item)}
+                </p>
+              )
+            )}
+          </div>
+        )}
+
+      </div>
+
+      {/* DAYS */}
+
+      <div className="itinerary-days">
+
+        {parsed.days.map(
+          (day, index) => (
+            <DayCard
+              key={index}
+              day={day}
+            />
+          )
+        )}
+
+      </div>
+
+      {/* BUDGET */}
+
+      <BudgetSummary
+        summary={parsed.budgetSummary}
+        finalTotal={parsed.finalTotal}
+      />
+
+      {/* TIPS */}
+
+      <TipsCard
+        tips={parsed.finalTips}
+      />
+
+      {/* RAW FALLBACK */}
+
+      {parsed.days.length === 0 &&
+        !parsed.finalTips.length && (
+          <div className="itinerary-fallback">
+            <p>
+              {renderInlineText(
+                cleanText(rawItinerary)
+              )}
+            </p>
+          </div>
+        )}
+
+    </div>
+  );
+};
+
+/* =========================================================
+   MAIN APP
+========================================================= */
+
+function App() {
+  /* =======================================================
+     PLANNER STATE
+  ======================================================= */
+
+  const [destination, setDestination] =
+    useState("");
+
+  const [days, setDays] =
+    useState("");
+
+  const [budget, setBudget] =
+    useState("");
+
+  const [interests, setInterests] =
+    useState("");
+
+  const [itinerary, setItinerary] =
+    useState("");
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  /* =======================================================
+     AUTH STATE
+  ======================================================= */
+
+  const [authMode, setAuthMode] =
+    useState(null);
+
+  const [authLoading, setAuthLoading] =
+    useState(false);
+
+  const [authError, setAuthError] =
+    useState("");
+
+  const [authSuccess, setAuthSuccess] =
+    useState("");
+
+  const [authName, setAuthName] =
+    useState("");
+
+  const [authEmail, setAuthEmail] =
+    useState("");
+
+  const [authPassword, setAuthPassword] =
+    useState("");
+
+  const [isLoggedIn, setIsLoggedIn] =
+    useState(
+      !!localStorage.getItem(
+        "smarttripToken"
+      )
+    );
+
+  /* =======================================================
+     AUTH MODAL
+  ======================================================= */
 
   const openAuth = (mode) => {
     setAuthMode(mode);
@@ -61,9 +1633,9 @@ function App() {
     setAuthLoading(false);
   };
 
-  // ============================================================
-  // LOGIN / SIGNUP
-  // ============================================================
+  /* =======================================================
+     LOGIN / SIGNUP
+  ======================================================= */
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -73,13 +1645,19 @@ function App() {
     setAuthLoading(true);
 
     try {
-      // ----------------------------------------------------------
-      // SIGN UP
-      // ----------------------------------------------------------
+      /* ---------------------------------------------------
+         SIGN UP
+      --------------------------------------------------- */
 
       if (authMode === "signup") {
-        if (!authName || !authEmail || !authPassword) {
-          throw new Error("Please fill in all the fields.");
+        if (
+          !authName ||
+          !authEmail ||
+          !authPassword
+        ) {
+          throw new Error(
+            "Please fill in all the fields."
+          );
         }
 
         const response = await fetch(
@@ -87,7 +1665,8 @@ function App() {
           {
             method: "POST",
             headers: {
-              "Content-Type": "application/json",
+              "Content-Type":
+                "application/json",
             },
             body: JSON.stringify({
               name: authName,
@@ -97,11 +1676,13 @@ function App() {
           }
         );
 
-        const data = await response.text();
+        const data =
+          await response.text();
 
         if (!response.ok) {
           throw new Error(
-            data || "Unable to create your account."
+            data ||
+              "Unable to create your account."
           );
         }
 
@@ -111,16 +1692,20 @@ function App() {
 
         setAuthMode("login");
         setAuthPassword("");
+        setAuthLoading(false);
 
         return;
       }
 
-      // ----------------------------------------------------------
-      // LOGIN
-      // ----------------------------------------------------------
+      /* ---------------------------------------------------
+         LOGIN
+      --------------------------------------------------- */
 
       if (authMode === "login") {
-        if (!authEmail || !authPassword) {
+        if (
+          !authEmail ||
+          !authPassword
+        ) {
           throw new Error(
             "Please enter your email and password."
           );
@@ -131,7 +1716,8 @@ function App() {
           {
             method: "POST",
             headers: {
-              "Content-Type": "application/json",
+              "Content-Type":
+                "application/json",
             },
             body: JSON.stringify({
               email: authEmail,
@@ -140,11 +1726,13 @@ function App() {
           }
         );
 
-        const token = await response.text();
+        const token =
+          await response.text();
 
         if (!response.ok) {
           throw new Error(
-            token || "Invalid email or password."
+            token ||
+              "Invalid email or password."
           );
         }
 
@@ -161,10 +1749,14 @@ function App() {
         );
 
         setIsLoggedIn(true);
+
         closeAuth();
       }
     } catch (err) {
-      console.error("Authentication error:", err);
+      console.error(
+        "Authentication error:",
+        err
+      );
 
       setAuthError(
         err.message ||
@@ -175,23 +1767,29 @@ function App() {
     }
   };
 
-  // ============================================================
-  // LOGOUT
-  // ============================================================
+  /* =======================================================
+     LOGOUT
+  ======================================================= */
 
   const logout = () => {
-    localStorage.removeItem("smarttripToken");
-    localStorage.removeItem("smarttripUser");
+    localStorage.removeItem(
+      "smarttripToken"
+    );
+
+    localStorage.removeItem(
+      "smarttripUser"
+    );
 
     setIsLoggedIn(false);
+
     setAuthName("");
     setAuthEmail("");
     setAuthPassword("");
   };
 
-  // ============================================================
-  // GENERATE ITINERARY
-  // ============================================================
+  /* =======================================================
+     GENERATE ITINERARY
+  ======================================================= */
 
   const generateItinerary = async () => {
     if (
@@ -203,6 +1801,7 @@ function App() {
       setError(
         "Please fill in all the travel details."
       );
+
       return;
     }
 
@@ -216,7 +1815,8 @@ function App() {
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
           },
           body: JSON.stringify({
             destination,
@@ -227,19 +1827,38 @@ function App() {
         }
       );
 
-      const data = await response.text();
+      const data =
+        await response.text();
 
       if (!response.ok) {
         throw new Error(
           `Backend error (${response.status}): ${
-            data || "Something went wrong"
+            data ||
+            "Something went wrong"
           }`
         );
       }
 
       setItinerary(data);
+
+      /*
+        Scroll toward the result after generation.
+      */
+      setTimeout(() => {
+        document
+          .getElementById(
+            "itinerary-result"
+          )
+          ?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+      }, 100);
     } catch (err) {
-      console.error("Itinerary error:", err);
+      console.error(
+        "Itinerary error:",
+        err
+      );
 
       setError(
         err.message ||
@@ -250,1625 +1869,30 @@ function App() {
     }
   };
 
-  // ============================================================
-  // TEXT CLEANING
-  // ============================================================
-
-  const cleanText = (text) => {
-    if (!text) return "";
-
-    return String(text)
-      .replace(/<br\s*\/?>/gi, " ")
-      .replace(/&nbsp;/gi, " ")
-      .replace(/\*\*/g, "")
-      .replace(/__/g, "")
-      .replace(/`/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-  };
-
-  // ============================================================
-  // REMOVE MARKDOWN LIST MARKERS
-  // ============================================================
-
-  const removeListMarker = (text) => {
-    if (!text) return "";
-
-    return String(text)
-      .replace(/^\s*[-•*]\s+/, "")
-      .replace(/^\s*\d+\.\s+/, "")
-      .trim();
-  };
-
-  // ============================================================
-  // CLEAN MARKDOWN HEADING
-  // ============================================================
-
-  const cleanHeading = (text) => {
-    if (!text) return "";
-
-    return String(text)
-      .replace(/^#{1,6}\s*/, "")
-      .replace(/\*\*/g, "")
-      .replace(/__/g, "")
-      .trim();
-  };
-
-  // ============================================================
-  // INLINE MARKDOWN RENDERER
-  // ============================================================
-
-  const renderInlineText = (text) => {
-    if (!text) return null;
-
-    const cleaned = String(text)
-      .replace(/<br\s*\/?>/gi, " ")
-      .replace(/`/g, "");
-
-    const parts = cleaned.split(
-      /(\*\*[^*]+\*\*|\*[^*]+\*)/g
-    );
-
-    return parts.map((part, index) => {
-      if (
-        part.startsWith("**") &&
-        part.endsWith("**")
-      ) {
-        return (
-          <strong key={index}>
-            {part.slice(2, -2)}
-          </strong>
-        );
-      }
-
-      if (
-        part.startsWith("*") &&
-        part.endsWith("*") &&
-        part.length > 2
-      ) {
-        return (
-          <em key={index}>
-            {part.slice(1, -1)}
-          </em>
-        );
-      }
-
-      return (
-        <span key={index}>
-          {part}
-        </span>
-      );
-    });
-  };
-
-  // ============================================================
-  // PARSE TABLE ROW
-  // ============================================================
-
-  const parseTableRow = (line) => {
-    if (!line || !line.includes("|")) {
-      return null;
-    }
-
-    const cells = line
-      .split("|")
-      .map((cell) => cell.trim());
-
-    if (
-      cells.length > 0 &&
-      cells[0] === ""
-    ) {
-      cells.shift();
-    }
-
-    if (
-      cells.length > 0 &&
-      cells[cells.length - 1] === ""
-    ) {
-      cells.pop();
-    }
-
-    if (cells.length < 2) {
-      return null;
-    }
-
-    return cells;
-  };
-
-  // ============================================================
-  // CHECK MARKDOWN TABLE SEPARATOR
-  // ============================================================
-
-  const isTableSeparator = (line) => {
-    if (!line || !line.includes("|")) {
-      return false;
-    }
-
-    const cells = parseTableRow(line);
-
-    if (!cells) return false;
-
-    return cells.every((cell) =>
-      /^:?-{2,}:?$/.test(
-        cell.replace(/\s/g, "")
-      )
-    );
-  };
-
-  // ============================================================
-  // PARSE ITINERARY
-  // ============================================================
-
-  const parseItinerary = (text) => {
-    const lines = String(text || "")
-      .replace(/\r/g, "")
-      .split("\n");
-
-    const parsed = {
-      days: [],
-      tips: [],
-      finalTips: [],
-      overview: [],
-      budgetSummary: [],
-      currency: "",
-    };
-
-    let currentDay = null;
-    let currentTime = null;
-    let currentCategory = null;
-    let inBudgetSummary = false;
-    let inDayTable = false;
-
-    // ----------------------------------------------------------
-    // CREATE DAY
-    // ----------------------------------------------------------
-
-    const createDay = (number, title) => ({
-      number,
-      title:
-        cleanText(title) ||
-        "Your Adventure",
-      focus: "",
-      morning: [],
-      afternoon: [],
-      evening: [],
-      food: [],
-      places: [],
-      expenses: [],
-    });
-
-    // ----------------------------------------------------------
-    // ADD TIME ITEM
-    // ----------------------------------------------------------
-
-    const addToCurrentTime = (item) => {
-      if (
-        !currentDay ||
-        !currentTime ||
-        !item
-      ) {
-        return;
-      }
-
-      currentDay[currentTime].push(
-        cleanText(item)
-      );
-    };
-
-    // ----------------------------------------------------------
-    // ADD SIDE ITEM
-    // ----------------------------------------------------------
-
-    const addSideItem = (
-      category,
-      item
-    ) => {
-      if (!currentDay || !item) return;
-
-      const cleaned = cleanText(item);
-
-      if (!cleaned) return;
-
-      if (category === "food") {
-        currentDay.food.push(cleaned);
-      }
-
-      if (category === "places") {
-        currentDay.places.push(cleaned);
-      }
-
-      if (category === "expenses") {
-        currentDay.expenses.push(cleaned);
-      }
-    };
-
-    // ----------------------------------------------------------
-    // DAY HEADING
-    // ----------------------------------------------------------
-
-    const getDayHeading = (line) => {
-      const cleaned = cleanHeading(line);
-
-      const match = cleaned.match(
-        /^Day\s+(\d+)\s*(?:[:\-–—]\s*)?(.*)$/i
-      );
-
-      if (!match) {
-        return null;
-      }
-
-      return {
-        number: match[1],
-        title:
-          cleanText(match[2]) ||
-          "Your Adventure",
-      };
-    };
-
-    // ----------------------------------------------------------
-    // TIME SECTION
-    // ----------------------------------------------------------
-
-    const getTimeSection = (line) => {
-      const cleaned = cleanHeading(line);
-
-      const match = cleaned.match(
-        /^(Morning|Afternoon|Evening)\s*(.*)$/i
-      );
-
-      if (!match) return null;
-
-      return {
-        key: match[1].toLowerCase(),
-        title:
-          `${match[1]} ${match[2] || ""}`.trim(),
-      };
-    };
-
-    // ----------------------------------------------------------
-    // LABEL
-    // ----------------------------------------------------------
-
-    const extractLabel = (line) => {
-      let value = removeListMarker(line);
-
-      value = value
-        .replace(/^#{1,6}\s*/, "")
-        .trim();
-
-      const match = value.match(
-        /^(?:\*\*)?([^:]{2,45})(?:\*\*)?\s*:\s*(.*)$/ 
-      );
-
-      if (!match) {
-        return null;
-      }
-
-      const label = cleanText(match[1]);
-      const content = cleanText(match[2]);
-
-      const lower = label.toLowerCase();
-
-      const recognized = [
-        "focus",
-        "places to visit",
-        "places",
-        "activities",
-        "activity",
-        "food",
-        "food recommendation",
-        "food recommendations",
-        "estimated expenses",
-        "estimated day expenses",
-        "expenses",
-        "transport",
-        "admissions",
-        "subtotal",
-        "total",
-        "accommodation",
-        "breakfast",
-        "lunch",
-        "dinner",
-        "afternoon coffee",
-        "snack",
-        "brunch",
-      ];
-
-      const isRecognized =
-        recognized.some((item) =>
-          lower.startsWith(item)
-        );
-
-      if (!isRecognized) {
-        return null;
-      }
-
-      return {
-        label,
-        content,
-        lower,
-      };
-    };
-
-    // ----------------------------------------------------------
-    // TABLE ROW → DAY DATA
-    // ----------------------------------------------------------
-
-    const processTableRow = (cells) => {
-      if (!currentDay || !cells) {
-        return;
-      }
-
-      const segment = cleanText(cells[0] || "");
-      const activity = cleanText(cells[1] || "");
-      const notes = cleanText(cells[2] || "");
-      const cost = cleanText(cells[3] || "");
-
-      if (
-        segment.toLowerCase() === "segment"
-      ) {
-        return;
-      }
-
-      if (!segment && !activity) {
-        return;
-      }
-
-      const combined = [];
-
-      if (activity) {
-        combined.push(activity);
-      }
-
-      if (notes) {
-        combined.push(notes);
-      }
-
-      if (cost) {
-        combined.push(`Approx. Cost: ${cost}`);
-      }
-
-      const item = combined.join(" — ");
-
-      if (!item) return;
-
-      const lowerSegment =
-        segment.toLowerCase();
-
-      if (
-        lowerSegment.includes("morning")
-      ) {
-        currentDay.morning.push(item);
-      } else if (
-        lowerSegment.includes("afternoon")
-      ) {
-        currentDay.afternoon.push(item);
-      } else if (
-        lowerSegment.includes("evening")
-      ) {
-        currentDay.evening.push(item);
-      } else if (
-        lowerSegment.includes("food")
-      ) {
-        currentDay.food.push(item);
-      } else if (
-        lowerSegment.includes("shopping")
-      ) {
-        currentDay.places.push(item);
-      } else if (
-        lowerSegment.includes("transport")
-      ) {
-        currentDay.expenses.push(
-          item
-        );
-      } else if (
-        lowerSegment.includes("total")
-      ) {
-        currentDay.expenses.push(
-          `Total: ${item}`
-        );
-      } else {
-        currentDay.morning.push(item);
-      }
-    };
-
-    // ==========================================================
-    // PROCESS EACH LINE
-    // ==========================================================
-
-    lines.forEach((rawLine) => {
-      const line = rawLine.trim();
-
-      if (!line) {
-        return;
-      }
-
-      // --------------------------------------------------------
-      // HORIZONTAL RULE
-      // --------------------------------------------------------
-
-      if (
-        /^[-_*]{3,}$/.test(line)
-      ) {
-        return;
-      }
-
-      // --------------------------------------------------------
-      // CURRENCY
-      // --------------------------------------------------------
-
-      const currencyMatch =
-        line.match(
-          /^\**Currency\**\s*:\s*(.+)$/i
-        );
-
-      if (
-        currencyMatch &&
-        !parsed.currency
-      ) {
-        parsed.currency =
-          cleanText(
-            currencyMatch[1]
-          );
-      }
-
-      // --------------------------------------------------------
-      // FINAL BUDGET SUMMARY
-      // --------------------------------------------------------
-
-      if (
-        /^#{1,6}\s*.*Final Budget Summary/i.test(
-          line
-        ) ||
-        /^Final Budget Summary/i.test(
-          cleanHeading(line)
-        ) ||
-        /^#{1,6}\s*.*Total .* Cost Summary/i.test(
-          line
-        )
-      ) {
-        inBudgetSummary = true;
-        inDayTable = false;
-        currentTime = null;
-        currentCategory = null;
-        return;
-      }
-
-      // --------------------------------------------------------
-      // DAY HEADING
-      // --------------------------------------------------------
-
-      const dayHeading =
-        getDayHeading(line);
-
-      if (dayHeading) {
-        currentDay = createDay(
-          dayHeading.number,
-          dayHeading.title
-        );
-
-        parsed.days.push(
-          currentDay
-        );
-
-        currentTime = null;
-        currentCategory = null;
-        inBudgetSummary = false;
-        inDayTable = false;
-
-        return;
-      }
-
-      // --------------------------------------------------------
-      // BUDGET TABLE
-      // --------------------------------------------------------
-
-      if (inBudgetSummary) {
-        if (
-          isTableSeparator(line)
-        ) {
-          return;
-        }
-
-        const tableCells =
-          parseTableRow(line);
-
-        if (tableCells) {
-          const cleanedCells =
-            tableCells.map((cell) =>
-              cleanText(cell)
-            );
-
-          if (
-            cleanedCells[0]
-              ?.toLowerCase()
-              .includes("item") ||
-            cleanedCells[0]
-              ?.toLowerCase()
-              .includes("category")
-          ) {
-            return;
-          }
-
-          parsed.budgetSummary.push(
-            cleanedCells.join(" — ")
-          );
-
-          return;
-        }
-
-        const budgetLine =
-          cleanText(
-            removeListMarker(line)
-          );
-
-        if (budgetLine) {
-          parsed.budgetSummary.push(
-            budgetLine
-          );
-        }
-
-        return;
-      }
-
-      // --------------------------------------------------------
-      // DAY TABLE
-      // --------------------------------------------------------
-
-      if (
-        currentDay &&
-        line.includes("|")
-      ) {
-        if (
-          isTableSeparator(line)
-        ) {
-          inDayTable = true;
-          return;
-        }
-
-        const cells =
-          parseTableRow(line);
-
-        if (cells) {
-          processTableRow(cells);
-          inDayTable = true;
-          return;
-        }
-      }
-
-      // --------------------------------------------------------
-      // TIME SECTION
-      // --------------------------------------------------------
-
-      const timeSection =
-        getTimeSection(line);
-
-      if (
-        timeSection &&
-        currentDay
-      ) {
-        currentTime =
-          timeSection.key;
-
-        currentCategory = "time";
-
-        return;
-      }
-
-      // --------------------------------------------------------
-      // BLOCKQUOTE / TIP
-      // --------------------------------------------------------
-
-      if (line.startsWith(">")) {
-        let tip = line
-          .replace(/^>\s*/, "")
-          .replace(/^Tip:\s*/i, "")
-          .trim();
-
-        tip = cleanText(tip);
-
-        if (tip) {
-          if (currentDay) {
-            parsed.finalTips.push(
-              tip
-            );
-          } else {
-            parsed.tips.push(
-              tip
-            );
-          }
-        }
-
-        return;
-      }
-
-      // --------------------------------------------------------
-      // NUMBERED FINAL TIPS
-      // --------------------------------------------------------
-
-      if (
-        /^\d+\.\s+/.test(line) &&
-        currentDay &&
-        parsed.days.length > 0 &&
-        !currentTime
-      ) {
-        parsed.finalTips.push(
-          cleanText(
-            line.replace(
-              /^\d+\.\s+/,
-              ""
-            )
-          )
-        );
-
-        return;
-      }
-
-      // --------------------------------------------------------
-      // LABELS
-      // --------------------------------------------------------
-
-      const labelData =
-        extractLabel(line);
-
-      if (labelData) {
-        const {
-          label,
-          content,
-          lower,
-        } = labelData;
-
-        // FOCUS
-        if (lower === "focus") {
-          if (currentDay) {
-            currentDay.focus =
-              content;
-          }
-
-          return;
-        }
-
-        // PLACES
-        if (
-          lower.includes(
-            "places to visit"
-          ) ||
-          lower === "places"
-        ) {
-          currentCategory =
-            "places";
-
-          if (content) {
-            addSideItem(
-              "places",
-              content
-            );
-          }
-
-          return;
-        }
-
-        // FOOD
-        if (
-          lower === "food" ||
-          lower.includes(
-            "food recommendation"
-          )
-        ) {
-          currentCategory =
-            "food";
-
-          if (content) {
-            addSideItem(
-              "food",
-              content
-            );
-          }
-
-          return;
-        }
-
-        // EXPENSES
-        if (
-          lower.includes(
-            "estimated expenses"
-          ) ||
-          lower.includes(
-            "estimated day expenses"
-          ) ||
-          lower === "expenses"
-        ) {
-          currentCategory =
-            "expenses";
-
-          if (content) {
-            addSideItem(
-              "expenses",
-              content
-            );
-          }
-
-          return;
-        }
-
-        // TRANSPORT / ADMISSIONS / ACCOMMODATION
-        if (
-          lower === "transport" ||
-          lower === "admissions" ||
-          lower === "accommodation" ||
-          lower === "subtotal" ||
-          lower === "total"
-        ) {
-          currentCategory =
-            "expenses";
-
-          if (content) {
-            addSideItem(
-              "expenses",
-              `${label}: ${content}`
-            );
-          }
-
-          return;
-        }
-
-        // FOOD DETAILS
-        if (
-          lower === "breakfast" ||
-          lower === "lunch" ||
-          lower === "dinner" ||
-          lower === "snack" ||
-          lower === "brunch" ||
-          lower.includes(
-            "afternoon coffee"
-          )
-        ) {
-          currentCategory =
-            "food";
-
-          if (content) {
-            addSideItem(
-              "food",
-              `${label}: ${content}`
-            );
-          }
-
-          return;
-        }
-
-        // ACTIVITIES
-        if (
-          lower === "activities" ||
-          lower === "activity"
-        ) {
-          currentCategory =
-            "time";
-
-          if (content) {
-            addToCurrentTime(
-              content
-            );
-          }
-
-          return;
-        }
-      }
-
-      // --------------------------------------------------------
-      // BULLETS
-      // --------------------------------------------------------
-
-      const isBullet =
-        /^[-•*]\s+/.test(line) ||
-        /^\d+\.\s+/.test(line);
-
-      if (isBullet) {
-        let bullet =
-          removeListMarker(line);
-
-        const bulletLabel =
-          extractLabel(bullet);
-
-        if (bulletLabel) {
-          const {
-            label,
-            content,
-            lower,
-          } = bulletLabel;
-
-          if (lower === "focus") {
-            if (currentDay) {
-              currentDay.focus =
-                content;
-            }
-
-            return;
-          }
-
-          if (
-            lower.includes(
-              "places to visit"
-            ) ||
-            lower === "places"
-          ) {
-            currentCategory =
-              "places";
-
-            if (content) {
-              addSideItem(
-                "places",
-                content
-              );
-            }
-
-            return;
-          }
-
-          if (
-            lower === "food" ||
-            lower.includes(
-              "food recommendation"
-            )
-          ) {
-            currentCategory =
-              "food";
-
-            if (content) {
-              addSideItem(
-                "food",
-                content
-              );
-            }
-
-            return;
-          }
-
-          if (
-            lower.includes(
-              "estimated expenses"
-            ) ||
-            lower.includes(
-              "estimated day expenses"
-            ) ||
-            lower === "expenses"
-          ) {
-            currentCategory =
-              "expenses";
-
-            if (content) {
-              addSideItem(
-                "expenses",
-                content
-              );
-            }
-
-            return;
-          }
-        }
-
-        bullet = cleanText(bullet);
-
-        if (!bullet) {
-          return;
-        }
-
-        if (currentDay) {
-          if (
-            currentCategory ===
-            "food"
-          ) {
-            addSideItem(
-              "food",
-              bullet
-            );
-          } else if (
-            currentCategory ===
-            "places"
-          ) {
-            addSideItem(
-              "places",
-              bullet
-            );
-          } else if (
-            currentCategory ===
-            "expenses"
-          ) {
-            addSideItem(
-              "expenses",
-              bullet
-            );
-          } else if (currentTime) {
-            addToCurrentTime(
-              bullet
-            );
-          } else {
-            currentDay.morning.push(
-              bullet
-            );
-          }
-        } else {
-          if (
-            parsed.days.length === 0
-          ) {
-            parsed.overview.push(
-              bullet
-            );
-          } else {
-            parsed.finalTips.push(
-              bullet
-            );
-          }
-        }
-
-        return;
-      }
-
-      // --------------------------------------------------------
-      // MAIN MARKDOWN HEADING
-      // --------------------------------------------------------
-
-      if (
-        /^#{1,6}\s+/.test(line)
-      ) {
-        const heading =
-          cleanHeading(line);
-
-        if (!heading) {
-          return;
-        }
-
-        const headingLower =
-          heading.toLowerCase();
-
-        if (
-          headingLower.includes(
-            "personalized plan"
-          ) ||
-          headingLower.includes(
-            "your itinerary"
-          ) ||
-          headingLower.includes(
-            "your smarttrip plan"
-          ) ||
-          headingLower.includes(
-            "smarttrip itinerary"
-          )
-        ) {
-          return;
-        }
-
-        if (!currentDay) {
-          parsed.overview.push(
-            heading
-          );
-        }
-
-        return;
-      }
-
-      // --------------------------------------------------------
-      // NORMAL TEXT
-      // --------------------------------------------------------
-
-      const normalText =
-        cleanText(
-          removeListMarker(line)
-        );
-
-      if (!normalText) {
-        return;
-      }
-
-      if (
-        /^category\s*$/i.test(
-          normalText
-        )
-      ) {
-        return;
-      }
-
-      if (
-        currentDay
-      ) {
-        if (
-          currentCategory ===
-          "food"
-        ) {
-          addSideItem(
-            "food",
-            normalText
-          );
-        } else if (
-          currentCategory ===
-          "places"
-        ) {
-          addSideItem(
-            "places",
-            normalText
-          );
-        } else if (
-          currentCategory ===
-          "expenses"
-        ) {
-          addSideItem(
-            "expenses",
-            normalText
-          );
-        } else if (
-          currentTime
-        ) {
-          addToCurrentTime(
-            normalText
-          );
-        } else {
-          const focusMatch =
-            normalText.match(
-              /^Focus\s*:\s*(.*)$/i
-            );
-
-          if (
-            focusMatch
-          ) {
-            currentDay.focus =
-              cleanText(
-                focusMatch[1]
-              );
-          } else {
-            currentDay.morning.push(
-              normalText
-            );
-          }
-        }
-      } else {
-        parsed.overview.push(
-          normalText
-        );
-      }
-    });
-
-    return parsed;
-  };
-
-  // ============================================================
-  // TIME CARD
-  // ============================================================
-
-  const renderTimeCard = (
-    title,
-    items,
-    type
-  ) => {
-    if (
-      !items ||
-      items.length === 0
-    ) {
-      return null;
-    }
-
-    const icon =
-      type === "morning"
-        ? "🌅"
-        : type === "afternoon"
-        ? "☀️"
-        : "🌙";
-
-    return (
-      <div
-        className={`time-card time-card-${type}`}
-      >
-        <div className="time-card-header">
-          <span className="time-card-icon">
-            {icon}
-          </span>
-
-          <h4>{title}</h4>
-        </div>
-
-        <div className="time-card-body">
-          {items.map(
-            (item, index) => (
-              <div
-                className="time-item"
-                key={index}
-              >
-                <span className="time-item-dot">
-                  •
-                </span>
-
-                <p>
-                  {renderInlineText(
-                    item
-                  )}
-                </p>
-              </div>
-            )
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  // ============================================================
-  // SIDE PANEL
-  // ============================================================
-
-  const renderSideBlock = (
-    title,
-    icon,
-    items,
-    className
-  ) => {
-    if (
-      !items ||
-      items.length === 0
-    ) {
-      return null;
-    }
-
-    return (
-      <div
-        className={`side-block ${
-          className || ""
-        }`}
-      >
-        <div className="side-block-title">
-          <span>{icon}</span>
-
-          <h4>{title}</h4>
-        </div>
-
-        <div className="side-block-content">
-          {items.map(
-            (item, index) => {
-              const isTotal =
-                /^(total|subtotal)/i.test(
-                  item
-                ) ||
-                /subtotal/i.test(
-                  item
-                );
-
-              return (
-                <div
-                  className={
-                    isTotal
-                      ? "side-item side-item-total"
-                      : "side-item"
-                  }
-                  key={index}
-                >
-                  <span>•</span>
-
-                  <p>
-                    {renderInlineText(
-                      item
-                    )}
-                  </p>
-                </div>
-              );
-            }
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  // ============================================================
-  // ITINERARY RENDERER
-  // ============================================================
-
-  const renderItinerary = () => {
-    if (!itinerary) {
-      return null;
-    }
-
-    const parsed =
-      parseItinerary(itinerary);
-
-    const currency =
-      parsed.currency ||
-      "Travel Budget";
-
-    return (
-      <div className="formatted-itinerary">
-
-        {/* =====================================================
-            SMARTTRIP OVERVIEW
-        ====================================================== */}
-
-        <div className="itinerary-overview">
-
-          <div className="overview-left">
-
-            <div className="overview-icon">
-              🌴
-            </div>
-
-            <div className="overview-content">
-
-              <div className="overview-label">
-                YOUR SMARTTRIP PLAN
-              </div>
-
-              <h3>
-                {destination}
-              </h3>
-
-              <p>
-                📍 {destination}
-
-                <span className="overview-dot">
-                  •
-                </span>
-
-                📅 {days} Days
-              </p>
-
-            </div>
-
-          </div>
-
-          <div className="overview-stats">
-
-            {/* BUDGET */}
-
-            <div className="overview-stat">
-
-              <span className="overview-stat-icon">
-                💰
-              </span>
-
-              <div>
-                <small>
-                  BUDGET
-                </small>
-
-                <strong>
-                  {budget}
-                </strong>
-              </div>
-
-            </div>
-
-            {/* INTERESTS */}
-
-            <div className="overview-stat">
-
-              <span className="overview-stat-icon">
-                ❤️
-              </span>
-
-              <div>
-                <small>
-                  INTERESTS
-                </small>
-
-                <strong>
-                  {interests}
-                </strong>
-              </div>
-
-            </div>
-
-            {/* CURRENCY */}
-
-            <div className="overview-stat">
-
-              <span className="overview-stat-icon">
-                💱
-              </span>
-
-              <div>
-                <small>
-                  CURRENCY
-                </small>
-
-                <strong>
-                  {currency}
-                </strong>
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
-        {/* =====================================================
-            SMARTTRIP TIPS
-        ====================================================== */}
-
-        {parsed.tips.length > 0 && (
-          <div className="smarttrip-tip-box">
-
-            <div className="smarttrip-tip-icon">
-              💡
-            </div>
-
-            <div className="smarttrip-tip-content">
-
-              <strong>
-                Tip:
-              </strong>
-
-              <div className="smarttrip-tip-list">
-
-                {parsed.tips.map(
-                  (tip, index) => (
-                    <span key={index}>
-                      •{" "}
-                      {renderInlineText(
-                        tip
-                      )}
-                    </span>
-                  )
-                )}
-
-              </div>
-
-            </div>
-
-          </div>
-        )}
-
-        {/* =====================================================
-            DAYS
-        ====================================================== */}
-
-        <div className="itinerary-days">
-
-          {parsed.days.map(
-            (day, index) => (
-              <div
-                className="day-card"
-                key={`${day.number}-${index}`}
-              >
-
-                {/* DAY HEADER */}
-
-                <div className="day-card-header">
-
-                  <div className="day-pill">
-                    Day {day.number}
-                  </div>
-
-                  <div className="day-heading-content">
-
-                    <h3>
-                      {day.title}
-                    </h3>
-
-                    {day.focus && (
-                      <p className="day-focus">
-                        <strong>
-                          Focus:
-                        </strong>{" "}
-                        {renderInlineText(
-                          day.focus
-                        )}
-                      </p>
-                    )}
-
-                  </div>
-
-                </div>
-
-                {/* DAY BODY */}
-
-                <div className="day-card-body">
-
-                  {/* TIME CARDS */}
-
-                  <div className="day-time-grid">
-
-                    {renderTimeCard(
-                      "Morning",
-                      day.morning,
-                      "morning"
-                    )}
-
-                    {renderTimeCard(
-                      "Afternoon",
-                      day.afternoon,
-                      "afternoon"
-                    )}
-
-                    {renderTimeCard(
-                      "Evening",
-                      day.evening,
-                      "evening"
-                    )}
-
-                  </div>
-
-                  {/* SIDE PANEL */}
-
-                  {(day.food.length > 0 ||
-                    day.places.length > 0 ||
-                    day.expenses.length > 0) && (
-
-                    <div className="day-side-panel">
-
-                      {renderSideBlock(
-                        "Food",
-                        "🍴",
-                        day.food,
-                        "side-food"
-                      )}
-
-                      {renderSideBlock(
-                        "Places to Visit",
-                        "📍",
-                        day.places,
-                        "side-places"
-                      )}
-
-                      {renderSideBlock(
-                        "Estimated Expenses",
-                        "💰",
-                        day.expenses,
-                        "side-expenses"
-                      )}
-
-                    </div>
-                  )}
-
-                </div>
-
-              </div>
-            )
-          )}
-
-        </div>
-
-        {/* =====================================================
-            BUDGET SUMMARY
-        ====================================================== */}
-
-        {parsed.budgetSummary.length > 0 && (
-
-          <div className="final-budget-card">
-
-            <div className="final-budget-header">
-
-              <span>
-                💰
-              </span>
-
-              <div>
-
-                <div className="section-label">
-                  FINAL BUDGET
-                </div>
-
-                <h3>
-                  Budget Summary
-                </h3>
-
-              </div>
-
-            </div>
-
-            <div className="final-budget-list">
-
-              {parsed.budgetSummary.map(
-                (item, index) => (
-                  <div
-                    className="final-budget-row"
-                    key={index}
-                  >
-                    <span>
-                      {renderInlineText(
-                        item
-                      )}
-                    </span>
-                  </div>
-                )
-              )}
-
-            </div>
-
-          </div>
-        )}
-
-        {/* =====================================================
-            FINAL TIPS
-        ====================================================== */}
-
-        {parsed.finalTips.length > 0 && (
-
-          <div className="smarttrip-tip-box final-tip-box">
-
-            <div className="smarttrip-tip-icon">
-              ✨
-            </div>
-
-            <div className="smarttrip-tip-content">
-
-              <strong>
-                SmartTrip Tips
-              </strong>
-
-              <div className="smarttrip-tip-list">
-
-                {parsed.finalTips.map(
-                  (tip, index) => (
-                    <span key={index}>
-                      •{" "}
-                      {renderInlineText(
-                        tip
-                      )}
-                    </span>
-                  )
-                )}
-
-              </div>
-
-            </div>
-
-          </div>
-        )}
-
-        {/* =====================================================
-            END MESSAGE
-        ====================================================== */}
-
-        <div className="itinerary-footer">
-
-          <span>
-            ✨
-          </span>
-
-          <div>
-
-            <strong>
-              Have an amazing trip!
-            </strong>
-
-            <p>
-              Your SmartTrip itinerary is
-              ready. Enjoy your adventure
-              in {destination}.
-            </p>
-
-          </div>
-
-        </div>
-
-      </div>
-    );
-  };
-
-  // ============================================================
-  // PAGE
-  // ============================================================
+  /* =======================================================
+     PAGE
+  ======================================================= */
 
   return (
     <div className="app">
 
-      {/* =====================================================
+      {/* ===================================================
           NAVBAR
-      ====================================================== */}
+      =================================================== */}
 
       <nav className="navbar">
 
         <div className="logo">
-
           <span className="logo-icon">
             ✈
           </span>
 
           <span>
-            Smart
-            <span>
-              Trip
-            </span>
+            Smart<span>Trip</span>
           </span>
-
         </div>
 
         <div className="nav-links">
-
           <a href="#planner">
             Planner
           </a>
@@ -1880,7 +1904,6 @@ function App() {
           <a href="#about">
             About
           </a>
-
         </div>
 
         <div className="navbar-auth">
@@ -1924,9 +1947,9 @@ function App() {
 
       </nav>
 
-      {/* =====================================================
+      {/* ===================================================
           HERO
-      ====================================================== */}
+      =================================================== */}
 
       <section className="hero">
 
@@ -1939,7 +1962,6 @@ function App() {
           <h1>
             Your next adventure
             <br />
-
             <span>
               starts here.
             </span>
@@ -1956,17 +1978,16 @@ function App() {
             className="hero-button"
             onClick={() =>
               document
-                .getElementById("planner")
+                .getElementById(
+                  "planner"
+                )
                 ?.scrollIntoView({
                   behavior: "smooth",
                 })
             }
           >
             Start Planning
-
-            <span>
-              →
-            </span>
+            <span>→</span>
           </button>
 
         </div>
@@ -1975,9 +1996,7 @@ function App() {
 
           <div className="floating-card card-one">
 
-            <span>
-              📍
-            </span>
+            <span>📍</span>
 
             <div>
               <strong>
@@ -1995,9 +2014,7 @@ function App() {
 
             <div className="circle-content">
 
-              <span>
-                🌍
-              </span>
+              <span>🌍</span>
 
               <strong>
                 TRAVEL
@@ -2013,12 +2030,9 @@ function App() {
 
           <div className="floating-card card-two">
 
-            <span>
-              ✨
-            </span>
+            <span>✨</span>
 
             <div>
-
               <strong>
                 AI Planned
               </strong>
@@ -2026,7 +2040,6 @@ function App() {
               <small>
                 Just for you
               </small>
-
             </div>
 
           </div>
@@ -2035,9 +2048,9 @@ function App() {
 
       </section>
 
-      {/* =====================================================
+      {/* ===================================================
           PLANNER
-      ====================================================== */}
+      =================================================== */}
 
       <section
         className="planner-section"
@@ -2053,7 +2066,8 @@ function App() {
           <h2>
             Where will you
             <span>
-              {" "}go next?
+              {" "}
+              go next?
             </span>
           </h2>
 
@@ -2151,23 +2165,21 @@ function App() {
 
           <button
             className="generate-button"
-            onClick={
-              generateItinerary
-            }
+            onClick={generateItinerary}
             disabled={loading}
           >
 
             {loading ? (
               <>
                 <span className="spinner"></span>
+
                 Creating your itinerary...
               </>
             ) : (
               <>
                 ✨ Generate My Itinerary
-                <span>
-                  →
-                </span>
+
+                <span>→</span>
               </>
             )}
 
@@ -2178,15 +2190,11 @@ function App() {
         {/* ERROR */}
 
         {error && (
-
           <div className="error-box">
 
-            <span>
-              ⚠️
-            </span>
+            <span>⚠️</span>
 
             <div>
-
               <strong>
                 Something went wrong
               </strong>
@@ -2194,7 +2202,6 @@ function App() {
               <p>
                 {error}
               </p>
-
             </div>
 
           </div>
@@ -2203,8 +2210,10 @@ function App() {
         {/* RESULT */}
 
         {itinerary && (
-
-          <div className="result-section">
+          <div
+            className="result-section"
+            id="itinerary-result"
+          >
 
             <div className="result-header">
 
@@ -2238,10 +2247,16 @@ function App() {
 
             </div>
 
-            {/* FORMATTED ITINERARY */}
-
             <div className="itinerary-card">
-              {renderItinerary()}
+
+              <FormattedItinerary
+                rawItinerary={itinerary}
+                destination={destination}
+                days={days}
+                budget={budget}
+                interests={interests}
+              />
+
             </div>
 
           </div>
@@ -2249,9 +2264,9 @@ function App() {
 
       </section>
 
-      {/* =====================================================
+      {/* ===================================================
           FEATURES
-      ====================================================== */}
+      =================================================== */}
 
       <section
         className="features-section"
@@ -2267,13 +2282,14 @@ function App() {
           <h2>
             Travel planning,
             <span>
-              {" "}simplified.
+              {" "}
+              simplified.
             </span>
           </h2>
 
           <p>
-            Everything you need to turn
-            your travel ideas into memorable
+            Everything you need to turn your
+            travel ideas into memorable
             adventures.
           </p>
 
@@ -2327,8 +2343,9 @@ function App() {
             </h3>
 
             <p>
-              Get organized morning, afternoon
-              and evening activities for every day.
+              Get organized morning,
+              afternoon and evening activities
+              for every day.
             </p>
 
           </div>
@@ -2344,8 +2361,9 @@ function App() {
             </h3>
 
             <p>
-              Your interests shape the experience,
-              making every trip uniquely yours.
+              Your interests shape the
+              experience, making every trip
+              uniquely yours.
             </p>
 
           </div>
@@ -2354,9 +2372,9 @@ function App() {
 
       </section>
 
-      {/* =====================================================
+      {/* ===================================================
           ABOUT
-      ====================================================== */}
+      =================================================== */}
 
       <section
         className="about-section"
@@ -2372,7 +2390,6 @@ function App() {
           <h2>
             Less planning.
             <br />
-
             <span>
               More exploring.
             </span>
@@ -2393,7 +2410,6 @@ function App() {
         <div className="about-stats">
 
           <div>
-
             <strong>
               AI
             </strong>
@@ -2401,11 +2417,9 @@ function App() {
             <span>
               Powered Planning
             </span>
-
           </div>
 
           <div>
-
             <strong>
               24/7
             </strong>
@@ -2413,11 +2427,9 @@ function App() {
             <span>
               Travel Inspiration
             </span>
-
           </div>
 
           <div>
-
             <strong>
               ∞
             </strong>
@@ -2425,16 +2437,15 @@ function App() {
             <span>
               Possible Adventures
             </span>
-
           </div>
 
         </div>
 
       </section>
 
-      {/* =====================================================
+      {/* ===================================================
           FOOTER
-      ====================================================== */}
+      =================================================== */}
 
       <footer>
 
@@ -2445,10 +2456,7 @@ function App() {
           </span>
 
           <span>
-            Smart
-            <span>
-              Trip
-            </span>
+            Smart<span>Trip</span>
           </span>
 
         </div>
@@ -2464,12 +2472,11 @@ function App() {
 
       </footer>
 
-      {/* =====================================================
+      {/* ===================================================
           AUTH MODAL
-      ====================================================== */}
+      =================================================== */}
 
       {authMode && (
-
         <div
           className="auth-overlay"
           onClick={closeAuth}
@@ -2504,15 +2511,12 @@ function App() {
             <div className="auth-heading">
 
               <div className="section-label">
-
                 {authMode === "login"
                   ? "WELCOME BACK"
                   : "JOIN SMARTTRIP"}
-
               </div>
 
               <h2>
-
                 {authMode === "login" ? (
                   <>
                     Welcome{" "}
@@ -2528,15 +2532,12 @@ function App() {
                     </span>
                   </>
                 )}
-
               </h2>
 
               <p>
-
                 {authMode === "login"
                   ? "Log in to continue planning your next adventure."
                   : "Create your account and start planning amazing trips."}
-
               </p>
 
             </div>
@@ -2546,7 +2547,6 @@ function App() {
             <form onSubmit={handleAuth}>
 
               {authMode === "signup" && (
-
                 <div className="auth-input-group">
 
                   <label>
@@ -2565,7 +2565,6 @@ function App() {
                   />
 
                 </div>
-
               )}
 
               <div className="auth-input-group">
@@ -2606,24 +2605,20 @@ function App() {
 
               </div>
 
-              {/* AUTH ERROR */}
+              {/* ERROR */}
 
               {authError && (
-
                 <div className="auth-error">
                   ⚠️ {authError}
                 </div>
-
               )}
 
-              {/* AUTH SUCCESS */}
+              {/* SUCCESS */}
 
               {authSuccess && (
-
                 <div className="auth-success">
                   ✅ {authSuccess}
                 </div>
-
               )}
 
               {/* BUTTON */}
@@ -2642,16 +2637,12 @@ function App() {
                 ) : authMode === "login" ? (
                   <>
                     🔐 Login
-                    <span>
-                      →
-                    </span>
+                    <span>→</span>
                   </>
                 ) : (
                   <>
                     ✨ Create Account
-                    <span>
-                      →
-                    </span>
+                    <span>→</span>
                   </>
                 )}
 
@@ -2670,7 +2661,9 @@ function App() {
                   <button
                     type="button"
                     onClick={() =>
-                      openAuth("signup")
+                      openAuth(
+                        "signup"
+                      )
                     }
                   >
                     Sign Up
@@ -2683,7 +2676,9 @@ function App() {
                   <button
                     type="button"
                     onClick={() =>
-                      openAuth("login")
+                      openAuth(
+                        "login"
+                      )
                     }
                   >
                     Login
