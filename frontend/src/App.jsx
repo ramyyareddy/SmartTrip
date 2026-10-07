@@ -3,6 +3,12 @@ import "./App.css";
 
 function App() {
   // =========================
+  // BACKEND URL
+  // =========================
+
+  const BACKEND_URL = "http://localhost:8080";
+
+  // =========================
   // PLANNER STATE
   // =========================
 
@@ -80,7 +86,7 @@ function App() {
         }
 
         const response = await fetch(
-          "https://smarttrip-production-7935.up.railway.app/api/auth/register",
+          `${BACKEND_URL}/api/auth/register`,
           {
             method: "POST",
             headers: {
@@ -123,7 +129,7 @@ function App() {
         }
 
         const response = await fetch(
-          "https://smarttrip-production-7935.up.railway.app/api/auth/login",
+          `${BACKEND_URL}/api/auth/login`,
           {
             method: "POST",
             headers: {
@@ -202,7 +208,7 @@ function App() {
 
     try {
       const response = await fetch(
-        "https://smarttrip-production-7935.up.railway.app/api/ai/itinerary",
+        `${BACKEND_URL}/api/ai/itinerary`,
         {
           method: "POST",
           headers: {
