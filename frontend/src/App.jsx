@@ -9,6 +9,43 @@ import "./App.css";
 const BACKEND_URL = "https://smarttrips.up.railway.app";
 
 /* =========================================================
+   TRIP STYLES
+========================================================= */
+
+const tripStyles = [
+  {
+    id: "Packed Explorer",
+    emoji: "⚡",
+    description: "See and experience as much as possible",
+  },
+  {
+    id: "Slow Travel",
+    emoji: "🌴",
+    description: "Relaxed pace with plenty of free time",
+  },
+  {
+    id: "Smart Saver",
+    emoji: "💰",
+    description: "Get the most value from your budget",
+  },
+  {
+    id: "Comfort First",
+    emoji: "✨",
+    description: "Prioritize convenience and comfort",
+  },
+  {
+    id: "Instagram Trip",
+    emoji: "📸",
+    description: "Focus on beautiful and photogenic places",
+  },
+  {
+    id: "Local Experience",
+    emoji: "🍜",
+    description: "Discover authentic local experiences",
+  },
+];
+
+/* =========================================================
    TEXT HELPERS
 ========================================================= */
 
@@ -166,12 +203,15 @@ const splitActivityLine = (rawText) => {
     if (extractedCost) {
       cost = extractedCost;
 
+      const escapedCost = extractedCost.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      );
+
       notes = notes
         .replace(
           new RegExp(
-            "\\s*\\(" +
-              extractedCost.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
-              "\\)\\s*\\.?$",
+            `\\s*\\(${escapedCost}\\)\\s*$`,
             "i"
           ),
           ""
@@ -255,7 +295,8 @@ const getOrCreateSection = (day, title) => {
   const cleanTitle = cleanHeading(title);
 
   let section = day.sections.find(
-    (item) => item.title.toLowerCase() === cleanTitle.toLowerCase()
+    (item) =>
+      item.title.toLowerCase() === cleanTitle.toLowerCase()
   );
 
   if (!section) {
@@ -443,6 +484,7 @@ const parseItinerary = (
       budget: fallbackBudget
         ? String(fallbackBudget)
         : "",
+
       interests: fallbackInterests || "",
       currency: "",
       transport: "",
@@ -486,6 +528,7 @@ const parseItinerary = (
       );
 
       parsed.days.push(currentDay);
+
       currentSection = null;
       mode = "day";
 
@@ -532,7 +575,8 @@ const parseItinerary = (
                 currentDay,
                 headers,
                 cells,
-                currentSection?.title || "Activities"
+                currentSection?.title ||
+                  "Activities"
               );
             } else {
               const rowLabel = cleanText(
@@ -641,7 +685,10 @@ const parseItinerary = (
 
     /* DAY CONTENT */
 
-    if (currentDay && mode === "day") {
+    if (
+      currentDay &&
+      mode === "day"
+    ) {
       const plainLine = cleanText(line);
 
       const totalMatch = plainLine.match(
@@ -683,7 +730,8 @@ const parseItinerary = (
       const isBullet = /^[-*•]\s+/.test(line);
 
       if (isBullet) {
-        const activity = splitActivityLine(line);
+        const activity =
+          splitActivityLine(line);
 
         if (
           activity.activity &&
@@ -725,9 +773,10 @@ const parseItinerary = (
         }
       }
 
-      const standaloneCost = plainLine.match(
-        /^(?:Approx\.?\s*Cost(?:\s*\([^)]*\))?)\s*:?\s*(.+)$/i
-      );
+      const standaloneCost =
+        plainLine.match(
+          /^(?:Approx\.?\s*Cost(?:\s*\([^)]*\))?)\s*:?\s*(.+)$/i
+        );
 
       if (standaloneCost) {
         currentDay.total = cleanText(
@@ -741,22 +790,23 @@ const parseItinerary = (
     /* SUMMARY */
 
     if (mode === "summary") {
-      const summaryLine = removeListMarker(
-        cleanText(line)
-      );
+      const summaryLine =
+        removeListMarker(
+          cleanText(line)
+        );
 
       if (!summaryLine) {
         continue;
       }
 
-      const totalMatch = summaryLine.match(
-        /^(?:Total|Estimated Total|Final Total)\s*:?\s*(.+)$/i
-      );
+      const totalMatch =
+        summaryLine.match(
+          /^(?:Total|Estimated Total|Final Total)\s*:?\s*(.+)$/i
+        );
 
       if (totalMatch) {
-        parsed.finalTotal = cleanText(
-          totalMatch[1]
-        );
+        parsed.finalTotal =
+          cleanText(totalMatch[1]);
 
         continue;
       }
@@ -769,9 +819,10 @@ const parseItinerary = (
         continue;
       }
 
-      const daySummary = summaryLine.match(
-        /^(Day\s*\d+)\s*:?\s*(.+)$/i
-      );
+      const daySummary =
+        summaryLine.match(
+          /^(Day\s*\d+)\s*:?\s*(.+)$/i
+        );
 
       if (daySummary) {
         parsed.budgetSummary.push({
@@ -784,7 +835,7 @@ const parseItinerary = (
       }
 
       if (
-        /^\s*(?:≈|~|₹|\$|€|£)?\s*\d[\d.,]*\s*[kKmM]?(?:\s*[A-Z]{2,4})?\s*$/i.test(
+        /^(?:≈|~|₹|\$|€|£)?\s*\d[\d.,]*\s*[kKmM]?(?:\s*[A-Z]{2,4})?$/i.test(
           summaryLine
         )
       ) {
@@ -820,9 +871,10 @@ const parseItinerary = (
     /* TIPS */
 
     if (mode === "tips") {
-      const tip = removeListMarker(
-        cleanText(line)
-      );
+      const tip =
+        removeListMarker(
+          cleanText(line)
+        );
 
       if (
         tip &&
@@ -830,8 +882,6 @@ const parseItinerary = (
       ) {
         parsed.finalTips.push(tip);
       }
-
-      continue;
     }
   }
 
@@ -981,23 +1031,28 @@ const ActivityRow = ({ item }) => {
 };
 
 const TimeSection = ({ section }) => {
-  if (!section || !section.items.length) {
+  if (
+    !section ||
+    !section.items.length
+  ) {
     return null;
   }
 
-  const title = section.title.toLowerCase();
+  const title =
+    section.title.toLowerCase();
 
-  const icon = title.includes("morning")
-    ? "🌅"
-    : title.includes("afternoon")
-    ? "☀️"
-    : title.includes("evening")
-    ? "🌙"
-    : title.includes("shopping")
-    ? "🛍️"
-    : title.includes("transport")
-    ? "🚕"
-    : "✨";
+  const icon =
+    title.includes("morning")
+      ? "🌅"
+      : title.includes("afternoon")
+      ? "☀️"
+      : title.includes("evening")
+      ? "🌙"
+      : title.includes("shopping")
+      ? "🛍️"
+      : title.includes("transport")
+      ? "🚕"
+      : "✨";
 
   return (
     <div className="time-card">
@@ -1016,12 +1071,14 @@ const TimeSection = ({ section }) => {
       </div>
 
       <div className="time-card-body">
-        {section.items.map((item, index) => (
-          <ActivityRow
-            key={`${section.key}-${index}`}
-            item={item}
-          />
-        ))}
+        {section.items.map(
+          (item, index) => (
+            <ActivityRow
+              key={`${section.key}-${index}`}
+              item={item}
+            />
+          )
+        )}
       </div>
     </div>
   );
@@ -1096,7 +1153,9 @@ const DayCard = ({ day }) => {
         {day.total && (
           <div className="day-total-card">
             <div>
-              <span>ESTIMATED DAY TOTAL</span>
+              <span>
+                ESTIMATED DAY TOTAL
+              </span>
 
               <strong>
                 Day {day.number}
@@ -1247,13 +1306,10 @@ const FormattedItinerary = ({
     interests
   );
 
-  /*
-    Saved trips don't separately store "days".
-    Therefore, use the number of parsed days when
-    the days prop isn't available.
-  */
   const displayDays =
-    days || parsed.days.length || "";
+    days ||
+    parsed.days.length ||
+    "";
 
   return (
     <div className="formatted-itinerary">
@@ -1285,7 +1341,9 @@ const FormattedItinerary = ({
               <small>DURATION</small>
 
               <strong>
-                {displayDays} Days
+                {displayDays
+                  ? `${displayDays} Days`
+                  : "Custom Plan"}
               </strong>
             </div>
           </div>
@@ -1421,6 +1479,9 @@ function App() {
   const [interests, setInterests] =
     useState("");
 
+  const [tripStyle, setTripStyle] =
+    useState("Smart Saver");
+
   const [itinerary, setItinerary] =
     useState("");
 
@@ -1539,7 +1600,9 @@ function App() {
         await response.json();
 
       setSavedTrips(
-        Array.isArray(data) ? data : []
+        Array.isArray(data)
+          ? data
+          : []
       );
     } catch (err) {
       console.error(
@@ -1586,6 +1649,7 @@ function App() {
         `${BACKEND_URL}/api/trips`,
         {
           method: "POST",
+
           headers: {
             "Content-Type":
               "application/json",
@@ -1761,7 +1825,6 @@ function App() {
 
         setAuthMode("login");
         setAuthPassword("");
-
         setAuthLoading(false);
 
         return;
@@ -1853,9 +1916,7 @@ function App() {
     );
 
     setIsLoggedIn(false);
-
     setSavedTrips([]);
-
     setAuthName("");
     setAuthEmail("");
     setAuthPassword("");
@@ -1899,6 +1960,19 @@ function App() {
           "smarttripToken"
         );
 
+      /*
+        We keep the existing backend request structure
+        so no backend DTO changes are required.
+
+        The selected Trip Style is added to the interests
+        value sent to the AI. This lets the existing AI
+        prompt receive both:
+        - WHAT the traveler likes
+        - HOW they want the trip to feel
+      */
+
+      const aiInterests = `${interests}. Trip Style: ${tripStyle}.`;
+
       const response = await fetch(
         `${BACKEND_URL}/api/ai/itinerary`,
         {
@@ -1919,7 +1993,7 @@ function App() {
             destination,
             days: Number(days),
             budget: Number(budget),
-            interests,
+            interests: aiInterests,
           }),
         }
       );
@@ -2055,7 +2129,6 @@ function App() {
           <h1>
             Your next adventure
             <br />
-
             <span>
               starts here.
             </span>
@@ -2231,6 +2304,62 @@ function App() {
             />
           </div>
 
+          {/* =================================================
+              TRIP STYLE
+          ================================================= */}
+
+          <div className="trip-style-group">
+            <label>
+              TRIP STYLE
+            </label>
+
+            <p className="trip-style-subtitle">
+              How do you want your trip to feel?
+            </p>
+
+            <div className="trip-style-grid">
+              {tripStyles.map(
+                (style) => (
+                  <button
+                    key={style.id}
+                    type="button"
+                    className={`trip-style-card ${
+                      tripStyle === style.id
+                        ? "selected"
+                        : ""
+                    }`}
+                    onClick={() =>
+                      setTripStyle(
+                        style.id
+                      )
+                    }
+                  >
+                    <span className="trip-style-emoji">
+                      {style.emoji}
+                    </span>
+
+                    <span className="trip-style-content">
+                      <strong>
+                        {style.id}
+                      </strong>
+
+                      <small>
+                        {style.description}
+                      </small>
+                    </span>
+
+                    {tripStyle ===
+                      style.id && (
+                      <span className="trip-style-check">
+                        ✓
+                      </span>
+                    )}
+                  </button>
+                )
+              )}
+            </div>
+          </div>
+
           <button
             className="generate-button"
             onClick={
@@ -2299,6 +2428,15 @@ function App() {
 
                 <span>
                   📅 {days} days
+                </span>
+
+                <span>
+                  {tripStyles.find(
+                    (style) =>
+                      style.id ===
+                      tripStyle
+                  )?.emoji}{" "}
+                  {tripStyle}
                 </span>
               </div>
             </div>
@@ -2598,9 +2736,9 @@ function App() {
             </h3>
 
             <p>
-              Your interests shape the
-              experience, making every trip
-              uniquely yours.
+              Your interests and trip style
+              shape the experience, making
+              every trip uniquely yours.
             </p>
           </div>
         </div>
