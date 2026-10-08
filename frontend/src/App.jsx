@@ -1267,6 +1267,7 @@ const TipsCard = ({ tips }) => {
 const FormattedItinerary = ({
   rawItinerary,
   destination,
+  startPoint,
   days,
   budget,
   interests,
@@ -1305,6 +1306,17 @@ const FormattedItinerary = ({
         </div>
 
         <div className="overview-meta">
+          {startPoint && (
+            <div className="overview-meta-item">
+              <span>🚩</span>
+
+              <div>
+                <small>START POINT</small>
+                <strong>{startPoint}</strong>
+              </div>
+            </div>
+          )}
+
           <div className="overview-meta-item">
             <span>📅</span>
 
@@ -1431,6 +1443,9 @@ function App() {
   ======================================================= */
 
   const [destination, setDestination] =
+    useState("");
+
+  const [startPoint, setStartPoint] =
     useState("");
 
   const [days, setDays] =
@@ -2018,7 +2033,7 @@ function App() {
           "smarttripToken"
         );
 
-      const aiInterests = `${interests}. Trip Style: ${tripStyle}.`;
+      const aiInterests = `${interests}. Trip Style: ${tripStyle}. Start Point: ${startPoint || "Not specified"}.`;
 
       const response = await fetch(
         `${BACKEND_URL}/api/ai/itinerary`,
@@ -2367,6 +2382,27 @@ function App() {
             />
           </div>
 
+          <div className="input-group">
+            <label>
+              🚩 START POINT
+            </label>
+
+            <input
+              type="text"
+              placeholder="e.g. Hyderabad, Delhi, Mumbai..."
+              value={startPoint}
+              onChange={(e) =>
+                setStartPoint(
+                  e.target.value
+                )
+              }
+            />
+
+            <small className="input-help">
+              Optional — tell SmartTrip where your journey begins.
+            </small>
+          </div>
+
           <div className="input-row">
             <div className="input-group">
               <label>
@@ -2559,6 +2595,7 @@ function App() {
               <FormattedItinerary
                 rawItinerary={itinerary}
                 destination={destination}
+                startPoint={startPoint}
                 days={days}
                 budget={budget}
                 interests={interests}
