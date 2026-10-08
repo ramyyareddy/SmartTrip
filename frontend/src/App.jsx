@@ -13,6 +13,11 @@ const BACKEND_URL = "https://smarttrips.up.railway.app";
 ========================================================= */
 
 const tripStyles = [
+    {
+    id: "No Filter",
+    emoji: "🧭",
+    description: "Let SmartTrip create a balanced itinerary without a specific travel style",
+  },
   {
     id: "Packed Explorer",
     emoji: "⚡",
@@ -1059,7 +1064,7 @@ const TimeSection = ({ section }) => {
 
 const DayCard = ({ day }) => {
   return (
-    <article className="day-card">
+    <article className="day-card timeline-day-card">
       <div className="day-card-header">
         <div className="day-pill">
           DAY {day.number}
@@ -1458,7 +1463,7 @@ function App() {
     useState("");
 
   const [tripStyle, setTripStyle] =
-    useState("Smart Saver");
+    useState("No Filter");
 
   const [itinerary, setItinerary] =
     useState("");
@@ -2033,7 +2038,10 @@ function App() {
           "smarttripToken"
         );
 
-      const aiInterests = `${interests}. Trip Style: ${tripStyle}. Start Point: ${startPoint || "Not specified"}.`;
+        const aiInterests = `${interests}. Trip Style: ${tripStyle}. Start Point: ${startPoint || "Not specified"}.
+
+If Trip Style is "No Filter", do not apply any special travel-style constraints. Create a balanced itinerary based on the destination, budget, interests, trip duration, and start point.`;
+
 
       const response = await fetch(
         `${BACKEND_URL}/api/ai/itinerary`,
@@ -2398,7 +2406,7 @@ function App() {
               }
             />
 
-            <small className="input-help">
+            <small className="start-point-helper">
               Optional — tell SmartTrip where your journey begins.
             </small>
           </div>

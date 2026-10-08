@@ -3151,3 +3151,130 @@ footer p {
     right: -5px;
   }
 }
+
+/* =========================================================
+   START POINT HELPER
+========================================================= */
+
+.start-point-helper {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  font-weight: 400;
+  color: #94a3b8;
+}
+
+/* =========================================================
+   DAY-BY-DAY TIMELINE
+========================================================= */
+
+.formatted-itinerary .itinerary-days {
+  position: relative;
+}
+
+.formatted-itinerary .timeline-day-card {
+  position: relative;
+  margin-left: 32px;
+}
+
+.formatted-itinerary .timeline-day-card::before {
+  content: "";
+  position: absolute;
+  left: -22px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    #6366f1,
+    #a855f7,
+    rgba(168, 85, 247, 0.08)
+  );
+  border-radius: 999px;
+}
+
+.formatted-itinerary .timeline-day-card::after {
+  content: "";
+  position: absolute;
+  left: -29px;
+  top: 22px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #6366f1;
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+  z-index: 2;
+}
+
+@media (max-width: 768px) {
+  .formatted-itinerary .timeline-day-card {
+    margin-left: 22px;
+  }
+
+  .formatted-itinerary .timeline-day-card::before {
+    left: -14px;
+  }
+
+  .formatted-itinerary .timeline-day-card::after {
+    left: -21px;
+  }
+}
+
+/* =========================================================
+   SMARTTRIP DAY-BY-DAY TIMELINE
+========================================================= */
+
+.formatted-itinerary .itinerary-days {
+  position: relative;
+}
+
+.formatted-itinerary .timeline-day-card {
+  position: relative;
+  margin-left: 32px;
+}
+
+.formatted-itinerary .timeline-day-card::before {
+  content: "";
+  position: absolute;
+  left: -22px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    #6366f1,
+    #a855f7,
+    rgba(168, 85, 247, 0.08)
+  );
+  border-radius: 999px;
+}
+
+.formatted-itinerary .timeline-day-card::after {
+  content: "";
+  position: absolute;
+  left: -29px;
+  top: 22px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #6366f1;
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+  z-index: 2;
+}
+
+@media (max-width: 768px) {
+  .formatted-itinerary .timeline-day-card {
+    margin-left: 22px;
+  }
+
+  .formatted-itinerary .timeline-day-card::before {
+    left: -14px;
+  }
+
+  .formatted-itinerary .timeline-day-card::after {
+    left: -21px;
+  }
+}
