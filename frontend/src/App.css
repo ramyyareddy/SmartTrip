@@ -3278,3 +3278,14 @@ footer p {
     left: -21px;
   }
 }
+
+.trip-map-route-status {
+  padding: 10px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+}

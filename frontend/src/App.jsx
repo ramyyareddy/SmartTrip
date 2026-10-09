@@ -1,6 +1,7 @@
-import { useState } from "react";
-
+import { useMemo, useState } from "react";
+import "leaflet/dist/leaflet.css";
 import "./App.css";
+import TripMap from "./components/TripMap";
 
 /* =========================================================
    SMARTTRIP BACKEND
@@ -13,10 +14,11 @@ const BACKEND_URL = "https://smarttrips.up.railway.app";
 ========================================================= */
 
 const tripStyles = [
-    {
+  {
     id: "No Filter",
     emoji: "🧭",
-    description: "Let SmartTrip create a balanced itinerary without a specific travel style",
+    description:
+      "Let SmartTrip create a balanced itinerary without a specific travel style",
   },
   {
     id: "Packed Explorer",
@@ -79,9 +81,13 @@ const normalizeKey = (text) =>
     .replace(/^_+|_+$/g, "");
 
 const parseTableRow = (line) => {
-  if (!line || !line.includes("|")) return null;
+  if (!line || !line.includes("|")) {
+    return null;
+  }
 
-  let cells = line.split("|").map((cell) => cell.trim());
+  let cells = line
+    .split("|")
+    .map((cell) => cell.trim());
 
   if (cells[0] === "") {
     cells.shift();
@@ -102,14 +108,18 @@ const isTableSeparator = (line) => {
   }
 
   return cells.every((cell) =>
-    /^:?-{2,}:?$/.test(cell.replace(/\s/g, ""))
+    /^:?-{2,}:?$/.test(
+      cell.replace(/\s/g, "")
+    )
   );
 };
 
 const isDayHeading = (line) => {
   const text = cleanHeading(line);
 
-  return text.match(/^Day\s+(\d+)\s*(?:[-–—:]\s*)?(.*)$/i);
+  return text.match(
+    /^Day\s+(\d+)\s*(?:[-–—:]\s*)?(.*)$/i
+  );
 };
 
 const isTimeHeading = (line) => {
@@ -145,6 +155,10 @@ const isTipsHeading = (line) => {
   );
 };
 
+/* =========================================================
+   COST HELPERS
+========================================================= */
+
 const extractCost = (text) => {
   const value = cleanText(text);
 
@@ -175,6 +189,80 @@ const extractCost = (text) => {
   return "";
 };
 
+/* =========================================================
+   PLACE HELPERS
+========================================================= */
+
+/*
+ * If the AI gives:
+ *
+ * Visit Charminar
+ * Explore Golconda Fort
+ * Lunch at Paradise
+ *
+ * but does not use "Activity — Place", this helper
+ * tries to extract the actual place name.
+ */
+const inferPlaceFromActivity = (activity) => {
+  const text = cleanText(activity);
+
+  if (!text) {
+    return "";
+  }
+
+  const patterns = [
+    /^(?:visit|visiting|explore|exploring|see|seeing|tour|touring|discover|discovering|experience|experiencing|head to|go to|travel to|stop at|stop by)\s+(.+)$/i,
+
+    /^(?:breakfast|lunch|dinner|meal|coffee|tea|snacks?)\s+(?:at|in|near)\s+(.+)$/i,
+
+    /^(?:have|enjoy|grab|get)\s+(?:breakfast|lunch|dinner|coffee|tea|snacks?)\s+(?:at|in|near)\s+(.+)$/i,
+
+    /^(?:shop|shopping)\s+(?:at|in|near)\s+(.+)$/i,
+
+    /^(?:relax|relaxing)\s+(?:at|in|near)\s+(.+)$/i,
+
+    /^(?:photograph|photography|photos?|sunset)\s+(?:at|in|near)\s+(.+)$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+
+    if (match && match[1]) {
+      return cleanText(
+        match[1]
+          .replace(
+            /\s+(?:for|during|in the|at the)\s+(?:morning|afternoon|evening|night).*$/i,
+            ""
+          )
+      );
+    }
+  }
+
+  return "";
+};
+
+const addPlaceToDay = (day, place) => {
+  const cleanPlace = cleanText(place);
+
+  if (!day || !cleanPlace) {
+    return;
+  }
+
+  const exists = day.places.some(
+    (item) =>
+      item.toLowerCase() ===
+      cleanPlace.toLowerCase()
+  );
+
+  if (!exists) {
+    day.places.push(cleanPlace);
+  }
+};
+
+/* =========================================================
+   ACTIVITY PARSER
+========================================================= */
+
 const splitActivityLine = (rawText) => {
   let text = removeListMarker(rawText);
   text = cleanText(text);
@@ -201,21 +289,28 @@ const splitActivityLine = (rawText) => {
       .replace(/[—-]\s*$/, "")
       .trim();
 
-    notes = cleanText(costMarker[1]);
+    notes = cleanText(
+      costMarker[1]
+    );
 
-    const extractedCost = extractCost(notes);
+    const extractedCost =
+      extractCost(notes);
 
     if (extractedCost) {
       cost = extractedCost;
 
-      const escapedCost = extractedCost.replace(
-        /[.*+?^${}()|[\]\\]/g,
-        "\\$&"
-      );
+      const escapedCost =
+        extractedCost.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&"
+        );
 
       notes = notes
         .replace(
-          new RegExp(`\\s*\\(${escapedCost}\\)\\s*$`, "i"),
+          new RegExp(
+            `\\s*\\(${escapedCost}\\)\\s*$`,
+            "i"
+          ),
           ""
         )
         .trim();
@@ -243,22 +338,37 @@ const splitActivityLine = (rawText) => {
     }
   } else {
     activity = parts[0] || text;
+
+    /*
+     * If there was no explicit "Activity — Place"
+     * structure, try to infer the place from the
+     * activity wording.
+     */
+    place = inferPlaceFromActivity(
+      activity
+    );
   }
 
   if (!cost && notes) {
-    const foundCost = extractCost(notes);
+    const foundCost =
+      extractCost(notes);
 
     if (foundCost) {
       cost = foundCost;
     }
   }
 
-  const normalized = activity.toLowerCase();
+  const normalized =
+    activity.toLowerCase();
 
   if (
     normalized === "activity" ||
-    normalized.includes("activity — place") ||
-    normalized.includes("activity - place") ||
+    normalized.includes(
+      "activity — place"
+    ) ||
+    normalized.includes(
+      "activity - place"
+    ) ||
     normalized === "place" ||
     normalized === "approx. cost"
   ) {
@@ -278,45 +388,71 @@ const splitActivityLine = (rawText) => {
   };
 };
 
+/* =========================================================
+   DAY / SECTION HELPERS
+========================================================= */
+
 const createEmptySection = (title) => ({
   key: normalizeKey(title),
   title,
   items: [],
 });
 
-const createEmptyDay = (number, title = "") => ({
+const createEmptyDay = (
+  number,
+  title = ""
+) => ({
   number: String(number),
-  title: cleanHeading(title) || "",
+  title:
+    cleanHeading(title) || "",
   sections: [],
   total: "",
   places: [],
   food: [],
 });
 
-const getOrCreateSection = (day, title) => {
-  const cleanTitle = cleanHeading(title);
+const getOrCreateSection = (
+  day,
+  title
+) => {
+  const cleanTitle =
+    cleanHeading(title);
 
   let section = day.sections.find(
     (item) =>
-      item.title.toLowerCase() === cleanTitle.toLowerCase()
+      item.title.toLowerCase() ===
+      cleanTitle.toLowerCase()
   );
 
   if (!section) {
-    section = createEmptySection(cleanTitle);
+    section =
+      createEmptySection(
+        cleanTitle
+      );
+
     day.sections.push(section);
   }
 
   return section;
 };
 
-const findColumnIndex = (headers, names) => {
-  const normalizedHeaders = headers.map((header) =>
-    normalizeKey(header)
-  );
+const findColumnIndex = (
+  headers,
+  names
+) => {
+  const normalizedHeaders =
+    headers.map((header) =>
+      normalizeKey(header)
+    );
 
   for (const name of names) {
-    const target = normalizeKey(name);
-    const exact = normalizedHeaders.indexOf(target);
+    const target =
+      normalizeKey(name);
+
+    const exact =
+      normalizedHeaders.indexOf(
+        target
+      );
 
     if (exact !== -1) {
       return exact;
@@ -325,6 +461,10 @@ const findColumnIndex = (headers, names) => {
 
   return -1;
 };
+
+/* =========================================================
+   TABLE ROW PARSER
+========================================================= */
 
 const addTableRowToDay = (
   day,
@@ -336,75 +476,101 @@ const addTableRowToDay = (
     return;
   }
 
-  const segmentIndex = findColumnIndex(headers, [
-    "segment",
-    "time",
-    "period",
-    "when",
-  ]);
+  const segmentIndex =
+    findColumnIndex(headers, [
+      "segment",
+      "time",
+      "period",
+      "when",
+    ]);
 
-  const activityIndex = findColumnIndex(headers, [
-    "activity",
-    "activities",
-    "what",
-    "experience",
-  ]);
+  const activityIndex =
+    findColumnIndex(headers, [
+      "activity",
+      "activities",
+      "what",
+      "experience",
+    ]);
 
-  const placeIndex = findColumnIndex(headers, [
-    "place",
-    "location",
-    "where",
-    "destination",
-  ]);
+  const placeIndex =
+    findColumnIndex(headers, [
+      "place",
+      "location",
+      "where",
+      "destination",
+    ]);
 
-  const notesIndex = findColumnIndex(headers, [
-    "notes",
-    "note",
-    "details",
-    "description",
-  ]);
+  const notesIndex =
+    findColumnIndex(headers, [
+      "notes",
+      "note",
+      "details",
+      "description",
+    ]);
 
-  const costIndex = findColumnIndex(headers, [
-    "approx cost",
-    "approx. cost",
-    "cost",
-    "price",
-    "estimated cost",
-    "budget",
-  ]);
+  const costIndex =
+    findColumnIndex(headers, [
+      "approx cost",
+      "approx. cost",
+      "cost",
+      "price",
+      "estimated cost",
+      "budget",
+    ]);
 
   const segment =
     segmentIndex >= 0
-      ? cleanText(cells[segmentIndex])
+      ? cleanText(
+          cells[segmentIndex]
+        )
       : "";
 
   const activity =
     activityIndex >= 0
-      ? cleanText(cells[activityIndex])
+      ? cleanText(
+          cells[activityIndex]
+        )
       : cleanText(cells[0]);
 
   const place =
     placeIndex >= 0
-      ? cleanText(cells[placeIndex])
-      : "";
+      ? cleanText(
+          cells[placeIndex]
+        )
+      : inferPlaceFromActivity(
+          activity
+        );
 
   const notes =
     notesIndex >= 0
-      ? cleanText(cells[notesIndex])
+      ? cleanText(
+          cells[notesIndex]
+        )
       : "";
 
   const cost =
     costIndex >= 0
-      ? cleanText(cells[costIndex])
+      ? cleanText(
+          cells[costIndex]
+        )
       : "";
 
-  const lowerActivity = activity.toLowerCase();
-  const lowerSegment = segment.toLowerCase();
+  const lowerActivity =
+    activity.toLowerCase();
+
+  const lowerSegment =
+    segment.toLowerCase();
 
   if (
-    lowerSegment.includes("total") ||
-    lowerActivity.includes("daily total") ||
-    lowerActivity.includes("estimated daily total") ||
+    lowerSegment.includes(
+      "total"
+    ) ||
+    lowerActivity.includes(
+      "daily total"
+    ) ||
+    lowerActivity.includes(
+      "estimated daily total"
+    ) ||
     lowerActivity === "total"
   ) {
     const totalValue =
@@ -414,28 +580,42 @@ const addTableRowToDay = (
       "";
 
     if (totalValue) {
-      day.total = cleanText(totalValue);
+      day.total =
+        cleanText(totalValue);
     }
 
     return;
   }
 
   if (
-    lowerActivity === "activity" ||
-    lowerActivity.includes("activity — place") ||
-    lowerActivity.includes("activity - place")
+    lowerActivity ===
+      "activity" ||
+    lowerActivity.includes(
+      "activity — place"
+    ) ||
+    lowerActivity.includes(
+      "activity - place"
+    )
   ) {
     return;
   }
 
-  if (!activity && !place && !notes && !cost) {
+  if (
+    !activity &&
+    !place &&
+    !notes &&
+    !cost
+  ) {
     return;
   }
 
-  let targetSection = segment;
+  let targetSection =
+    segment;
 
   if (!targetSection) {
-    targetSection = fallbackSection || "Activities";
+    targetSection =
+      fallbackSection ||
+      "Activities";
   }
 
   const knownSection = [
@@ -447,19 +627,24 @@ const addTableRowToDay = (
     "food",
     "meals",
   ].find((item) =>
-    targetSection.toLowerCase().includes(item)
+    targetSection
+      .toLowerCase()
+      .includes(item)
   );
 
   if (knownSection) {
     targetSection =
-      knownSection.charAt(0).toUpperCase() +
+      knownSection
+        .charAt(0)
+        .toUpperCase() +
       knownSection.slice(1);
   }
 
-  const section = getOrCreateSection(
-    day,
-    targetSection
-  );
+  const section =
+    getOrCreateSection(
+      day,
+      targetSection
+    );
 
   section.items.push({
     activity,
@@ -467,7 +652,16 @@ const addTableRowToDay = (
     notes,
     cost,
   });
+
+  addPlaceToDay(
+    day,
+    place
+  );
 };
+
+/* =========================================================
+   ITINERARY PARSER
+========================================================= */
 
 const parseItinerary = (
   raw,
@@ -478,7 +672,8 @@ const parseItinerary = (
 ) => {
   const parsed = {
     title:
-      fallbackDestination || "Your SmartTrip Journey",
+      fallbackDestination ||
+      "Your SmartTrip Journey",
 
     overview: [],
 
@@ -487,7 +682,9 @@ const parseItinerary = (
         ? String(fallbackBudget)
         : "",
 
-      interests: fallbackInterests || "",
+      interests:
+        fallbackInterests || "",
+
       currency: "",
       transport: "",
     },
@@ -501,33 +698,48 @@ const parseItinerary = (
   const lines = String(raw || "")
     .replace(/\r/g, "")
     .split("\n")
-    .map((line) => line.trim());
+    .map((line) =>
+      line.trim()
+    );
 
   let currentDay = null;
   let currentSection = null;
   let mode = "overview";
 
-  for (let i = 0; i < lines.length; i++) {
-    const originalLine = lines[i];
+  for (
+    let i = 0;
+    i < lines.length;
+    i++
+  ) {
+    const originalLine =
+      lines[i];
 
     if (!originalLine) {
       continue;
     }
 
-    const line = originalLine.trim();
+    const line =
+      originalLine.trim();
 
-    const dayMatch = isDayHeading(line);
+    const dayMatch =
+      isDayHeading(line);
 
     if (dayMatch) {
-      const dayNumber = dayMatch[1];
-      const dayTitle = dayMatch[2];
+      const dayNumber =
+        dayMatch[1];
 
-      currentDay = createEmptyDay(
-        dayNumber,
-        dayTitle
+      const dayTitle =
+        dayMatch[2];
+
+      currentDay =
+        createEmptyDay(
+          dayNumber,
+          dayTitle
+        );
+
+      parsed.days.push(
+        currentDay
       );
-
-      parsed.days.push(currentDay);
 
       currentSection = null;
       mode = "day";
@@ -541,29 +753,46 @@ const parseItinerary = (
       continue;
     }
 
-    if (isSummaryHeading(line)) {
+    if (
+      isSummaryHeading(line)
+    ) {
       mode = "summary";
       currentSection = null;
       continue;
     }
 
+    /* =====================================================
+       MARKDOWN TABLE
+    ===================================================== */
+
     if (
       line.includes("|") &&
       i + 1 < lines.length &&
-      isTableSeparator(lines[i + 1])
+      isTableSeparator(
+        lines[i + 1]
+      )
     ) {
-      const headers = parseTableRow(line);
+      const headers =
+        parseTableRow(line);
 
-      if (headers && headers.length) {
+      if (
+        headers &&
+        headers.length
+      ) {
         i += 2;
 
         while (
           i < lines.length &&
           lines[i] &&
           lines[i].includes("|") &&
-          !isDayHeading(lines[i])
+          !isDayHeading(
+            lines[i]
+          )
         ) {
-          const cells = parseTableRow(lines[i]);
+          const cells =
+            parseTableRow(
+              lines[i]
+            );
 
           if (cells) {
             if (currentDay) {
@@ -575,24 +804,32 @@ const parseItinerary = (
                   "Activities"
               );
             } else {
-              const rowLabel = cleanText(
-                cells[0] || ""
-              );
+              const rowLabel =
+                cleanText(
+                  cells[0] || ""
+                );
 
-              const rowValue = cleanText(
-                cells[cells.length - 1] || ""
-              );
+              const rowValue =
+                cleanText(
+                  cells[
+                    cells.length - 1
+                  ] || ""
+                );
 
               if (
                 rowLabel &&
                 rowValue &&
-                rowLabel.toLowerCase() !== "item"
+                rowLabel.toLowerCase() !==
+                  "item"
               ) {
-                parsed.budgetSummary.push({
-                  item: rowLabel,
-                  amount: rowValue,
-                  usd: "",
-                });
+                parsed.budgetSummary.push(
+                  {
+                    item: rowLabel,
+                    amount:
+                      rowValue,
+                    usd: "",
+                  }
+                );
               }
             }
           }
@@ -605,58 +842,88 @@ const parseItinerary = (
       }
     }
 
-    const timeMatch = isTimeHeading(line);
+    /* =====================================================
+       TIME SECTION
+    ===================================================== */
 
-    if (timeMatch && currentDay) {
-      currentSection = getOrCreateSection(
-        currentDay,
-        timeMatch[1]
-      );
+    const timeMatch =
+      isTimeHeading(line);
+
+    if (
+      timeMatch &&
+      currentDay
+    ) {
+      currentSection =
+        getOrCreateSection(
+          currentDay,
+          timeMatch[1]
+        );
 
       mode = "day";
+
       continue;
     }
 
-    const cleaned = cleanText(line);
+    const cleaned =
+      cleanText(line);
 
-    const metadataMatch = cleaned.match(
-      /^(?:[-•*]\s*)?(Budget|Interests|Currency|Transport)\s*:?\s*(.+)$/i
-    );
+    /* =====================================================
+       METADATA
+    ===================================================== */
+
+    const metadataMatch =
+      cleaned.match(
+        /^(?:[-•*]\s*)?(Budget|Interests|Currency|Transport)\s*:?\s*(.+)$/i
+      );
 
     if (metadataMatch) {
-      const key = metadataMatch[1].toLowerCase();
+      const key =
+        metadataMatch[1].toLowerCase();
 
-      parsed.meta[key] = cleanText(
-        metadataMatch[2]
-      );
+      parsed.meta[key] =
+        cleanText(
+          metadataMatch[2]
+        );
 
       continue;
     }
 
-    const inlineMeta = cleaned.match(
-      /^(Budget|Interests|Currency|Transport)\s+(.+)$/i
-    );
+    const inlineMeta =
+      cleaned.match(
+        /^(Budget|Interests|Currency|Transport)\s+(.+)$/i
+      );
 
     if (inlineMeta) {
-      const key = inlineMeta[1].toLowerCase();
+      const key =
+        inlineMeta[1].toLowerCase();
 
-      parsed.meta[key] = cleanText(
-        inlineMeta[2]
-      );
+      parsed.meta[key] =
+        cleanText(
+          inlineMeta[2]
+        );
 
       continue;
     }
+
+    /* =====================================================
+       OVERVIEW
+    ===================================================== */
 
     if (
       mode === "overview" &&
       !currentDay
     ) {
-      const heading = cleanHeading(line);
+      const heading =
+        cleanHeading(line);
 
       if (
         heading &&
-        !heading.startsWith("YOUR SMARTTRIP PLAN") &&
-        !heading.startsWith("SMARTTRIP")
+        !heading.startsWith(
+          "YOUR SMARTTRIP PLAN"
+        ) &&
+        !heading.startsWith(
+          "SMARTTRIP"
+        )
       ) {
         if (
           !heading.match(
@@ -666,66 +933,120 @@ const parseItinerary = (
             /^(Estimated|Final|Tips)/i
           )
         ) {
-          parsed.overview.push(heading);
+          parsed.overview.push(
+            heading
+          );
         }
       }
 
       continue;
     }
 
+    /* =====================================================
+       DAY CONTENT
+    ===================================================== */
+
     if (
       currentDay &&
       mode === "day"
     ) {
-      const plainLine = cleanText(line);
+      const plainLine =
+        cleanText(line);
 
-      const totalMatch = plainLine.match(
-        /^(?:Approx\.?\s*Cost|Estimated Daily Total|Daily Total|Total)\s*:?\s*(.+)$/i
-      );
+      const totalMatch =
+        plainLine.match(
+          /^(?:Approx\.?\s*Cost|Estimated Daily Total|Daily Total|Total)\s*:?\s*(.+)$/i
+        );
 
       if (totalMatch) {
-        currentDay.total = cleanText(
-          totalMatch[1]
+        currentDay.total =
+          cleanText(
+            totalMatch[1]
+          );
+
+        continue;
+      }
+
+      /* ===================================================
+         EXPLICIT PLACES
+      =================================================== */
+
+      if (
+        /^places?\s*:/i.test(
+          plainLine
+        )
+      ) {
+        const places =
+          plainLine
+            .replace(
+              /^places?\s*:/i,
+              ""
+            )
+            .split(/[,•]/)
+            .map((item) =>
+              cleanText(item)
+            )
+            .filter(Boolean);
+
+        places.forEach(
+          (place) =>
+            addPlaceToDay(
+              currentDay,
+              place
+            )
         );
 
         continue;
       }
 
-      if (/^places?\s*:/i.test(plainLine)) {
-        const places = plainLine
-          .replace(/^places?\s*:/i, "")
-          .split(/[,•]/)
-          .map((item) => cleanText(item))
-          .filter(Boolean);
+      /* ===================================================
+         FOOD
+      =================================================== */
 
-        currentDay.places.push(...places);
+      if (
+        /^food\s*:/i.test(
+          plainLine
+        )
+      ) {
+        const foods =
+          plainLine
+            .replace(
+              /^food\s*:/i,
+              ""
+            )
+            .split(/[,•]/)
+            .map((item) =>
+              cleanText(item)
+            )
+            .filter(Boolean);
+
+        currentDay.food.push(
+          ...foods
+        );
 
         continue;
       }
 
-      if (/^food\s*:/i.test(plainLine)) {
-        const foods = plainLine
-          .replace(/^food\s*:/i, "")
-          .split(/[,•]/)
-          .map((item) => cleanText(item))
-          .filter(Boolean);
+      /* ===================================================
+         BULLET ACTIVITY
+      =================================================== */
 
-        currentDay.food.push(...foods);
-
-        continue;
-      }
-
-      const isBullet = /^[-*•]\s+/.test(line);
+      const isBullet =
+        /^[-*•]\s+/.test(line);
 
       if (isBullet) {
         const activity =
-          splitActivityLine(line);
+          splitActivityLine(
+            line
+          );
 
         if (
           activity.activity &&
           !activity.activity
             .toLowerCase()
-            .includes("approx. cost")
+            .includes(
+              "approx. cost"
+            )
         ) {
           const section =
             currentSection ||
@@ -734,20 +1055,39 @@ const parseItinerary = (
               "Activities"
             );
 
-          section.items.push(activity);
+          section.items.push(
+            activity
+          );
+
+          addPlaceToDay(
+            currentDay,
+            activity.place
+          );
         }
 
         continue;
       }
 
+      /* ===================================================
+         NON-BULLET ACTIVITY
+      =================================================== */
+
       if (
-        plainLine.includes("Approx. Cost") ||
-        plainLine.includes(" — ")
+        plainLine.includes(
+          "Approx. Cost"
+        ) ||
+        plainLine.includes(
+          " — "
+        )
       ) {
         const activity =
-          splitActivityLine(plainLine);
+          splitActivityLine(
+            plainLine
+          );
 
-        if (activity.activity) {
+        if (
+          activity.activity
+        ) {
           const section =
             currentSection ||
             getOrCreateSection(
@@ -755,11 +1095,22 @@ const parseItinerary = (
               "Activities"
             );
 
-          section.items.push(activity);
+          section.items.push(
+            activity
+          );
+
+          addPlaceToDay(
+            currentDay,
+            activity.place
+          );
 
           continue;
         }
       }
+
+      /* ===================================================
+         STANDALONE COST
+      =================================================== */
 
       const standaloneCost =
         plainLine.match(
@@ -767,13 +1118,18 @@ const parseItinerary = (
         );
 
       if (standaloneCost) {
-        currentDay.total = cleanText(
-          standaloneCost[1]
-        );
+        currentDay.total =
+          cleanText(
+            standaloneCost[1]
+          );
 
         continue;
       }
     }
+
+    /* =====================================================
+       SUMMARY
+    ===================================================== */
 
     if (mode === "summary") {
       const summaryLine =
@@ -792,7 +1148,9 @@ const parseItinerary = (
 
       if (totalMatch) {
         parsed.finalTotal =
-          cleanText(totalMatch[1]);
+          cleanText(
+            totalMatch[1]
+          );
 
         continue;
       }
@@ -811,11 +1169,17 @@ const parseItinerary = (
         );
 
       if (daySummary) {
-        parsed.budgetSummary.push({
-          item: cleanText(daySummary[1]),
-          amount: cleanText(daySummary[2]),
-          usd: "",
-        });
+        parsed.budgetSummary.push(
+          {
+            item: cleanText(
+              daySummary[1]
+            ),
+            amount: cleanText(
+              daySummary[2]
+            ),
+            usd: "",
+          }
+        );
 
         continue;
       }
@@ -825,11 +1189,14 @@ const parseItinerary = (
           summaryLine
         )
       ) {
-        parsed.budgetSummary.push({
-          item: "",
-          amount: summaryLine,
-          usd: "",
-        });
+        parsed.budgetSummary.push(
+          {
+            item: "",
+            amount:
+              summaryLine,
+            usd: "",
+          }
+        );
 
         continue;
       }
@@ -840,19 +1207,25 @@ const parseItinerary = (
         );
 
       if (colonSummary) {
-        parsed.budgetSummary.push({
-          item: cleanText(
-            colonSummary[1]
-          ),
-          amount: cleanText(
-            colonSummary[2]
-          ),
-          usd: "",
-        });
+        parsed.budgetSummary.push(
+          {
+            item: cleanText(
+              colonSummary[1]
+            ),
+            amount: cleanText(
+              colonSummary[2]
+            ),
+            usd: "",
+          }
+        );
       }
 
       continue;
     }
+
+    /* =====================================================
+       TIPS
+    ===================================================== */
 
     if (mode === "tips") {
       const tip =
@@ -862,30 +1235,49 @@ const parseItinerary = (
 
       if (
         tip &&
-        !tip.match(/^SmartTrip Tips$/i)
+        !tip.match(
+          /^SmartTrip Tips$/i
+        )
       ) {
-        parsed.finalTips.push(tip);
+        parsed.finalTips.push(
+          tip
+        );
       }
     }
   }
 
-  if (
-    parsed.budgetSummary.length === 0 &&
-    parsed.days.length > 0
-  ) {
-    parsed.days.forEach((day) => {
-      if (day.total) {
-        parsed.budgetSummary.push({
-          item: `Day ${day.number}`,
-          amount: day.total,
-          usd: "",
-        });
-      }
-    });
-  }
+  /* =======================================================
+     FALLBACK BUDGET SUMMARY
+  ======================================================= */
 
   if (
-    parsed.days.length === 0 &&
+    parsed.budgetSummary.length ===
+      0 &&
+    parsed.days.length > 0
+  ) {
+    parsed.days.forEach(
+      (day) => {
+        if (day.total) {
+          parsed.budgetSummary.push(
+            {
+              item: `Day ${day.number}`,
+              amount:
+                day.total,
+              usd: "",
+            }
+          );
+        }
+      }
+    );
+  }
+
+  /* =======================================================
+     FALLBACK DAYS
+  ======================================================= */
+
+  if (
+    parsed.days.length ===
+      0 &&
     Number(fallbackDays) > 0
   ) {
     for (
@@ -899,14 +1291,19 @@ const parseItinerary = (
     }
   }
 
-  parsed.days = parsed.days.filter(
-    (day) =>
-      day.title ||
-      day.sections.length ||
-      day.total ||
-      day.places.length ||
-      day.food.length
-  );
+  /* =======================================================
+     REMOVE COMPLETELY EMPTY DAYS
+  ======================================================= */
+
+  parsed.days =
+    parsed.days.filter(
+      (day) =>
+        day.title ||
+        day.sections.length ||
+        day.total ||
+        day.places.length ||
+        day.food.length
+    );
 
   return parsed;
 };
@@ -915,49 +1312,71 @@ const parseItinerary = (
    INLINE TEXT RENDERER
 ========================================================= */
 
-const renderInlineText = (text) => {
-  const value = String(text || "");
+const renderInlineText = (
+  text
+) => {
+  const value =
+    String(text || "");
 
-  const parts = value.split(
-    /(\*\*[^*]+\*\*|\*[^*]+\*)/g
-  );
-
-  return parts.map((part, index) => {
-    if (
-      part.startsWith("**") &&
-      part.endsWith("**")
-    ) {
-      return (
-        <strong key={index}>
-          {part.slice(2, -2)}
-        </strong>
-      );
-    }
-
-    if (
-      part.startsWith("*") &&
-      part.endsWith("*")
-    ) {
-      return (
-        <em key={index}>
-          {part.slice(1, -1)}
-        </em>
-      );
-    }
-
-    return (
-      <span key={index}>
-        {part}
-      </span>
+  const parts =
+    value.split(
+      /(\*\*[^*]+\*\*|\*[^*]+\*)/g
     );
-  });
+
+  return parts.map(
+    (part, index) => {
+      if (
+        part.startsWith(
+          "**"
+        ) &&
+        part.endsWith(
+          "**"
+        )
+      ) {
+        return (
+          <strong key={index}>
+            {part.slice(
+              2,
+              -2
+            )}
+          </strong>
+        );
+      }
+
+      if (
+        part.startsWith(
+          "*"
+        ) &&
+        part.endsWith(
+          "*"
+        )
+      ) {
+        return (
+          <em key={index}>
+            {part.slice(
+              1,
+              -1
+            )}
+          </em>
+        );
+      }
+
+      return (
+        <span key={index}>
+          {part}
+        </span>
+      );
+    }
+  );
 };
 
 /* =========================================================
    ITINERARY CARD COMPONENTS
 ========================================================= */
 
-const ActivityRow = ({ item }) => {
+const ActivityRow = ({
+  item,
+}) => {
   return (
     <div className="structured-activity">
       <div className="structured-activity-main">
@@ -968,7 +1387,8 @@ const ActivityRow = ({ item }) => {
 
           <strong>
             {renderInlineText(
-              item.activity || "Activity"
+              item.activity ||
+                "Activity"
             )}
           </strong>
         </div>
@@ -980,7 +1400,10 @@ const ActivityRow = ({ item }) => {
             </span>
 
             <span className="activity-place">
-              📍 {renderInlineText(item.place)}
+              📍{" "}
+              {renderInlineText(
+                item.place
+              )}
             </span>
           </div>
         )}
@@ -992,7 +1415,9 @@ const ActivityRow = ({ item }) => {
             </span>
 
             <p>
-              {renderInlineText(item.notes)}
+              {renderInlineText(
+                item.notes
+              )}
             </p>
           </div>
         )}
@@ -1000,15 +1425,22 @@ const ActivityRow = ({ item }) => {
 
       {item.cost && (
         <div className="activity-cost">
-          <span>COST</span>
-          <strong>{item.cost}</strong>
+          <span>
+            COST
+          </span>
+
+          <strong>
+            {item.cost}
+          </strong>
         </div>
       )}
     </div>
   );
 };
 
-const TimeSection = ({ section }) => {
+const TimeSection = ({
+  section,
+}) => {
   if (
     !section ||
     !section.items.length
@@ -1022,13 +1454,21 @@ const TimeSection = ({ section }) => {
   const icon =
     title.includes("morning")
       ? "🌅"
-      : title.includes("afternoon")
+      : title.includes(
+          "afternoon"
+        )
       ? "☀️"
-      : title.includes("evening")
+      : title.includes(
+          "evening"
+        )
       ? "🌙"
-      : title.includes("shopping")
+      : title.includes(
+          "shopping"
+        )
       ? "🛍️"
-      : title.includes("transport")
+      : title.includes(
+          "transport"
+        )
       ? "🚕"
       : "✨";
 
@@ -1044,13 +1484,18 @@ const TimeSection = ({ section }) => {
             {section.title.toUpperCase()}
           </span>
 
-          <h4>{section.title}</h4>
+          <h4>
+            {section.title}
+          </h4>
         </div>
       </div>
 
       <div className="time-card-body">
         {section.items.map(
-          (item, index) => (
+          (
+            item,
+            index
+          ) => (
             <ActivityRow
               key={`${section.key}-${index}`}
               item={item}
@@ -1062,7 +1507,9 @@ const TimeSection = ({ section }) => {
   );
 };
 
-const DayCard = ({ day }) => {
+const DayCard = ({
+  day,
+}) => {
   return (
     <article className="day-card timeline-day-card">
       <div className="day-card-header">
@@ -1084,7 +1531,10 @@ const DayCard = ({ day }) => {
 
       <div className="day-card-body">
         {day.sections.map(
-          (section, index) => (
+          (
+            section,
+            index
+          ) => (
             <TimeSection
               key={`${day.number}-${index}`}
               section={section}
@@ -1092,7 +1542,8 @@ const DayCard = ({ day }) => {
           )
         )}
 
-        {day.places.length > 0 && (
+        {day.places.length >
+          0 && (
           <div className="side-block">
             <div className="side-block-title">
               📍 PLACES
@@ -1100,8 +1551,13 @@ const DayCard = ({ day }) => {
 
             <div className="side-block-content">
               {day.places.map(
-                (place, index) => (
-                  <span key={index}>
+                (
+                  place,
+                  index
+                ) => (
+                  <span
+                    key={index}
+                  >
                     {place}
                   </span>
                 )
@@ -1110,7 +1566,8 @@ const DayCard = ({ day }) => {
           </div>
         )}
 
-        {day.food.length > 0 && (
+        {day.food.length >
+          0 && (
           <div className="side-block">
             <div className="side-block-title">
               🍜 FOOD
@@ -1118,8 +1575,13 @@ const DayCard = ({ day }) => {
 
             <div className="side-block-content">
               {day.food.map(
-                (food, index) => (
-                  <span key={index}>
+                (
+                  food,
+                  index
+                ) => (
+                  <span
+                    key={index}
+                  >
                     {food}
                   </span>
                 )
@@ -1136,7 +1598,8 @@ const DayCard = ({ day }) => {
               </span>
 
               <strong>
-                Day {day.number}
+                Day{" "}
+                {day.number}
               </strong>
             </div>
 
@@ -1155,7 +1618,8 @@ const BudgetSummary = ({
   finalTotal,
 }) => {
   if (
-    (!summary || !summary.length) &&
+    (!summary ||
+      !summary.length) &&
     !finalTotal
   ) {
     return null;
@@ -1179,27 +1643,34 @@ const BudgetSummary = ({
         </div>
       </div>
 
-      {summary && summary.length > 0 && (
-        <div className="budget-summary-list">
-          {summary.map(
-            (row, index) => (
-              <div
-                className="budget-summary-row"
-                key={index}
-              >
-                <span>
-                  {row.item ||
-                    `Expense ${index + 1}`}
-                </span>
+      {summary &&
+        summary.length > 0 && (
+          <div className="budget-summary-list">
+            {summary.map(
+              (
+                row,
+                index
+              ) => (
+                <div
+                  className="budget-summary-row"
+                  key={index}
+                >
+                  <span>
+                    {row.item ||
+                      `Expense ${
+                        index +
+                        1
+                      }`}
+                  </span>
 
-                <strong>
-                  {row.amount}
-                </strong>
-              </div>
-            )
-          )}
-        </div>
-      )}
+                  <strong>
+                    {row.amount}
+                  </strong>
+                </div>
+              )
+            )}
+          </div>
+        )}
 
       {finalTotal && (
         <div className="budget-final-total">
@@ -1222,8 +1693,13 @@ const BudgetSummary = ({
   );
 };
 
-const TipsCard = ({ tips }) => {
-  if (!tips || !tips.length) {
+const TipsCard = ({
+  tips,
+}) => {
+  if (
+    !tips ||
+    !tips.length
+  ) {
     return null;
   }
 
@@ -1247,15 +1723,22 @@ const TipsCard = ({ tips }) => {
 
       <div className="tip-list">
         {tips.map(
-          (tip, index) => (
+          (
+            tip,
+            index
+          ) => (
             <div
               className="tip-item"
               key={index}
             >
-              <span>✓</span>
+              <span>
+                ✓
+              </span>
 
               <p>
-                {renderInlineText(tip)}
+                {renderInlineText(
+                  tip
+                )}
               </p>
             </div>
           )
@@ -1277,12 +1760,43 @@ const FormattedItinerary = ({
   budget,
   interests,
 }) => {
-  const parsed = parseItinerary(
-    rawItinerary,
-    destination,
-    days,
-    budget,
-    interests
+  const parsed = useMemo(
+    () =>
+      parseItinerary(
+        rawItinerary,
+        destination,
+        days,
+        budget,
+        interests
+      ),
+    [
+      rawItinerary,
+      destination,
+      days,
+      budget,
+      interests,
+    ]
+  );
+
+  const mapPlaces =
+    useMemo(
+      () =>
+        parsed.days.flatMap(
+          (day) =>
+            day.places ||
+            []
+        ),
+      [parsed.days]
+    );
+
+  console.log(
+    "SmartTrip parsed days:",
+    parsed.days
+  );
+
+  console.log(
+    "SmartTrip map places:",
+    mapPlaces
   );
 
   const displayDays =
@@ -1292,6 +1806,22 @@ const FormattedItinerary = ({
 
   return (
     <div className="formatted-itinerary">
+      {/* INTERACTIVE MAP */}
+
+      <TripMap
+        destination={
+          destination
+        }
+        startPoint={
+          startPoint
+        }
+        places={
+          mapPlaces
+        }
+      />
+
+      {/* ITINERARY OVERVIEW */}
+
       <div className="itinerary-overview">
         <div className="overview-top">
           <div>
@@ -1306,27 +1836,39 @@ const FormattedItinerary = ({
           </div>
 
           <div className="overview-destination">
-            📍 {destination}
+            📍{" "}
+            {destination}
           </div>
         </div>
 
         <div className="overview-meta">
           {startPoint && (
             <div className="overview-meta-item">
-              <span>🚩</span>
+              <span>
+                🚩
+              </span>
 
               <div>
-                <small>START POINT</small>
-                <strong>{startPoint}</strong>
+                <small>
+                  START POINT
+                </small>
+
+                <strong>
+                  {startPoint}
+                </strong>
               </div>
             </div>
           )}
 
           <div className="overview-meta-item">
-            <span>📅</span>
+            <span>
+              📅
+            </span>
 
             <div>
-              <small>DURATION</small>
+              <small>
+                DURATION
+              </small>
 
               <strong>
                 {displayDays
@@ -1337,66 +1879,104 @@ const FormattedItinerary = ({
           </div>
 
           <div className="overview-meta-item">
-            <span>💰</span>
+            <span>
+              💰
+            </span>
 
             <div>
-              <small>BUDGET</small>
+              <small>
+                BUDGET
+              </small>
 
               <strong>
-                {parsed.meta.budget ||
+                {parsed.meta
+                  .budget ||
                   budget}
               </strong>
             </div>
           </div>
 
           <div className="overview-meta-item">
-            <span>❤️</span>
+            <span>
+              ❤️
+            </span>
 
             <div>
-              <small>INTERESTS</small>
+              <small>
+                INTERESTS
+              </small>
 
               <strong>
-                {parsed.meta.interests ||
+                {parsed.meta
+                  .interests ||
                   interests}
               </strong>
             </div>
           </div>
 
-          {parsed.meta.currency && (
+          {parsed.meta
+            .currency && (
             <div className="overview-meta-item">
-              <span>💱</span>
+              <span>
+                💱
+              </span>
 
               <div>
-                <small>CURRENCY</small>
+                <small>
+                  CURRENCY
+                </small>
 
                 <strong>
-                  {parsed.meta.currency}
+                  {
+                    parsed
+                      .meta
+                      .currency
+                  }
                 </strong>
               </div>
             </div>
           )}
 
-          {parsed.meta.transport && (
+          {parsed.meta
+            .transport && (
             <div className="overview-meta-item">
-              <span>🚕</span>
+              <span>
+                🚕
+              </span>
 
               <div>
-                <small>TRANSPORT</small>
+                <small>
+                  TRANSPORT
+                </small>
 
                 <strong>
-                  {parsed.meta.transport}
+                  {
+                    parsed
+                      .meta
+                      .transport
+                  }
                 </strong>
               </div>
             </div>
           )}
         </div>
 
-        {parsed.overview.length > 0 && (
+        {parsed.overview
+          .length > 0 && (
           <div className="overview-notes">
             {parsed.overview.map(
-              (item, index) => (
-                <p key={index}>
-                  {renderInlineText(item)}
+              (
+                item,
+                index
+              ) => (
+                <p
+                  key={
+                    index
+                  }
+                >
+                  {renderInlineText(
+                    item
+                  )}
                 </p>
               )
             )}
@@ -1404,9 +1984,14 @@ const FormattedItinerary = ({
         )}
       </div>
 
+      {/* DAY-BY-DAY TIMELINE */}
+
       <div className="itinerary-days">
         {parsed.days.map(
-          (day, index) => (
+          (
+            day,
+            index
+          ) => (
             <DayCard
               key={index}
               day={day}
@@ -1415,21 +2000,37 @@ const FormattedItinerary = ({
         )}
       </div>
 
+      {/* BUDGET SUMMARY */}
+
       <BudgetSummary
-        summary={parsed.budgetSummary}
-        finalTotal={parsed.finalTotal}
+        summary={
+          parsed.budgetSummary
+        }
+        finalTotal={
+          parsed.finalTotal
+        }
       />
+
+      {/* TRAVEL TIPS */}
 
       <TipsCard
-        tips={parsed.finalTips}
+        tips={
+          parsed.finalTips
+        }
       />
 
-      {parsed.days.length === 0 &&
-        !parsed.finalTips.length && (
+      {/* FALLBACK */}
+
+      {parsed.days.length ===
+        0 &&
+        !parsed.finalTips
+          .length && (
           <div className="itinerary-fallback">
             <p>
               {renderInlineText(
-                cleanText(rawItinerary)
+                cleanText(
+                  rawItinerary
+                )
               )}
             </p>
           </div>
@@ -1447,111 +2048,161 @@ function App() {
      PLANNER STATE
   ======================================================= */
 
-  const [destination, setDestination] =
-    useState("");
+  const [
+    destination,
+    setDestination,
+  ] = useState("");
 
-  const [startPoint, setStartPoint] =
-    useState("");
+  const [
+    startPoint,
+    setStartPoint,
+  ] = useState("");
 
   const [days, setDays] =
     useState("");
 
-  const [budget, setBudget] =
-    useState("");
+  const [
+    budget,
+    setBudget,
+  ] = useState("");
 
-  const [interests, setInterests] =
-    useState("");
+  const [
+    interests,
+    setInterests,
+  ] = useState("");
 
-  const [tripStyle, setTripStyle] =
-    useState("No Filter");
+  const [
+    tripStyle,
+    setTripStyle,
+  ] = useState(
+    "No Filter"
+  );
 
-  const [itinerary, setItinerary] =
-    useState("");
+  const [
+    itinerary,
+    setItinerary,
+  ] = useState("");
 
-  const [loading, setLoading] =
-    useState(false);
+  const [
+    loading,
+    setLoading,
+  ] = useState(false);
 
-  const [error, setError] =
-    useState("");
+  const [
+    error,
+    setError,
+  ] = useState("");
 
   /* =======================================================
      SAVED TRIPS STATE
   ======================================================= */
 
-  const [savedTrips, setSavedTrips] =
-    useState([]);
+  const [
+    savedTrips,
+    setSavedTrips,
+  ] = useState([]);
 
-  const [savingTrip, setSavingTrip] =
-    useState(false);
+  const [
+    savingTrip,
+    setSavingTrip,
+  ] = useState(false);
 
-  const [tripsLoading, setTripsLoading] =
-    useState(false);
+  const [
+    tripsLoading,
+    setTripsLoading,
+  ] = useState(false);
 
-  const [tripsError, setTripsError] =
-    useState("");
+  const [
+    tripsError,
+    setTripsError,
+  ] = useState("");
 
   /* =======================================================
      AUTH STATE
   ======================================================= */
 
-  const [authMode, setAuthMode] =
-    useState(null);
+  const [
+    authMode,
+    setAuthMode,
+  ] = useState(null);
 
-  const [authLoading, setAuthLoading] =
-    useState(false);
+  const [
+    authLoading,
+    setAuthLoading,
+  ] = useState(false);
 
-  const [authError, setAuthError] =
-    useState("");
+  const [
+    authError,
+    setAuthError,
+  ] = useState("");
 
-  const [authSuccess, setAuthSuccess] =
-    useState("");
+  const [
+    authSuccess,
+    setAuthSuccess,
+  ] = useState("");
 
-  const [authName, setAuthName] =
-    useState("");
+  const [
+    authName,
+    setAuthName,
+  ] = useState("");
 
-  const [authEmail, setAuthEmail] =
-    useState("");
+  const [
+    authEmail,
+    setAuthEmail,
+  ] = useState("");
 
-  const [authPassword, setAuthPassword] =
-    useState("");
+  const [
+    authPassword,
+    setAuthPassword,
+  ] = useState("");
 
-  const [isLoggedIn, setIsLoggedIn] =
-    useState(
-      !!localStorage.getItem(
-        "smarttripToken"
-      )
-    );
+  const [
+    isLoggedIn,
+    setIsLoggedIn,
+  ] = useState(
+    !!localStorage.getItem(
+      "smarttripToken"
+    )
+  );
 
   /* =======================================================
      CURRENT USER
   ======================================================= */
 
-  const [currentUser, setCurrentUser] =
-    useState(() => {
-      const savedUser =
-        localStorage.getItem(
-          "smarttripUser"
-        );
+  const [
+    currentUser,
+    setCurrentUser,
+  ] = useState(() => {
+    const savedUser =
+      localStorage.getItem(
+        "smarttripUser"
+      );
 
-      if (!savedUser) {
-        return null;
-      }
+    if (!savedUser) {
+      return null;
+    }
 
-      try {
-        return JSON.parse(savedUser);
-      } catch {
-        return null;
-      }
-    });
+    try {
+      return JSON.parse(
+        savedUser
+      );
+    } catch {
+      return null;
+    }
+  });
 
-  const [userMenuOpen, setUserMenuOpen] =
-    useState(false);
+  const [
+    userMenuOpen,
+    setUserMenuOpen,
+  ] = useState(false);
 
   /* =======================================================
      AUTH MODAL
   ======================================================= */
 
-  const openAuth = (mode) => {
+  const openAuth = (
+    mode
+  ) => {
     setAuthMode(mode);
     setAuthError("");
     setAuthSuccess("");
@@ -1574,58 +2225,62 @@ function App() {
      LOAD SAVED TRIPS
   ======================================================= */
 
-  const loadSavedTrips = async () => {
-    const token =
-      localStorage.getItem(
-        "smarttripToken"
-      );
-
-    if (!token) {
-      setSavedTrips([]);
-      return;
-    }
-
-    setTripsLoading(true);
-    setTripsError("");
-
-    try {
-      const response = await fetch(
-        `${BACKEND_URL}/api/trips`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(
-          "Unable to load your saved trips."
+  const loadSavedTrips =
+    async () => {
+      const token =
+        localStorage.getItem(
+          "smarttripToken"
         );
+
+      if (!token) {
+        setSavedTrips([]);
+        return;
       }
 
-      const data =
-        await response.json();
+      setTripsLoading(true);
+      setTripsError("");
 
-      setSavedTrips(
-        Array.isArray(data)
-          ? data
-          : []
-      );
-    } catch (err) {
-      console.error(
-        "Load trips error:",
-        err
-      );
+      try {
+        const response =
+          await fetch(
+            `${BACKEND_URL}/api/trips`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
 
-      setTripsError(
-        err.message ||
-          "Unable to load saved trips."
-      );
-    } finally {
-      setTripsLoading(false);
-    }
-  };
+        if (!response.ok) {
+          throw new Error(
+            "Unable to load your saved trips."
+          );
+        }
+
+        const data =
+          await response.json();
+
+        setSavedTrips(
+          Array.isArray(data)
+            ? data
+            : []
+        );
+      } catch (err) {
+        console.error(
+          "Load trips error:",
+          err
+        );
+
+        setTripsError(
+          err.message ||
+            "Unable to load saved trips."
+        );
+      } finally {
+        setTripsLoading(
+          false
+        );
+      }
+    };
 
   /* =======================================================
      SAVE TRIP
@@ -1646,6 +2301,7 @@ function App() {
       setError(
         "Generate an itinerary before saving your trip."
       );
+
       return;
     }
 
@@ -1653,28 +2309,33 @@ function App() {
     setError("");
 
     try {
-      const response = await fetch(
-        `${BACKEND_URL}/api/trips`,
-        {
-          method: "POST",
+      const response =
+        await fetch(
+          `${BACKEND_URL}/api/trips`,
+          {
+            method: "POST",
 
-          headers: {
-            "Content-Type":
-              "application/json",
+            headers: {
+              "Content-Type":
+                "application/json",
 
-            Authorization: `Bearer ${token}`,
-          },
+              Authorization: `Bearer ${token}`,
+            },
 
-          body: JSON.stringify({
-            destination,
-            startDate: null,
-            endDate: null,
-            budget: Number(budget),
-            interests,
-            itinerary,
-          }),
-        }
-      );
+            body: JSON.stringify(
+              {
+                destination,
+                startDate:
+                  null,
+                endDate: null,
+                budget:
+                  Number(budget),
+                interests,
+                itinerary,
+              }
+            ),
+          }
+        );
 
       const data =
         await response.text();
@@ -1693,7 +2354,9 @@ function App() {
       );
 
       document
-        .getElementById("my-trips")
+        .getElementById(
+          "my-trips"
+        )
         ?.scrollIntoView({
           behavior: "smooth",
         });
@@ -1716,267 +2379,280 @@ function App() {
      DELETE TRIP
   ======================================================= */
 
-  const deleteTrip = async (tripId) => {
-    const token =
-      localStorage.getItem(
-        "smarttripToken"
-      );
-
-    if (!token) {
-      openAuth("login");
-      return;
-    }
-
-    const confirmed =
-      window.confirm(
-        "Are you sure you want to delete this saved trip?"
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        `${BACKEND_URL}/api/trips/${tripId}`,
-        {
-          method: "DELETE",
-
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(
-          "Unable to delete this trip."
+  const deleteTrip =
+    async (tripId) => {
+      const token =
+        localStorage.getItem(
+          "smarttripToken"
         );
+
+      if (!token) {
+        openAuth("login");
+        return;
       }
 
-      setSavedTrips(
-        (currentTrips) =>
-          currentTrips.filter(
-            (trip) =>
-              trip.id !== tripId
-          )
-      );
-    } catch (err) {
-      console.error(
-        "Delete trip error:",
-        err
-      );
+      const confirmed =
+        window.confirm(
+          "Are you sure you want to delete this saved trip?"
+        );
 
-      setTripsError(
-        err.message ||
-          "Unable to delete this trip."
-      );
-    }
-  };
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        const response =
+          await fetch(
+            `${BACKEND_URL}/api/trips/${tripId}`,
+            {
+              method: "DELETE",
+
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
+
+        if (!response.ok) {
+          throw new Error(
+            "Unable to delete this trip."
+          );
+        }
+
+        setSavedTrips(
+          (
+            currentTrips
+          ) =>
+            currentTrips.filter(
+              (trip) =>
+                trip.id !==
+                tripId
+            )
+        );
+      } catch (err) {
+        console.error(
+          "Delete trip error:",
+          err
+        );
+
+        setTripsError(
+          err.message ||
+            "Unable to delete this trip."
+        );
+      }
+    };
 
   /* =======================================================
      LOGIN / SIGNUP
   ======================================================= */
 
-  const handleAuth = async (e) => {
-    e.preventDefault();
+  const handleAuth =
+    async (e) => {
+      e.preventDefault();
 
-    setAuthError("");
-    setAuthSuccess("");
-    setAuthLoading(true);
+      setAuthError("");
+      setAuthSuccess("");
+      setAuthLoading(true);
 
-    try {
-      /* SIGN UP */
+      try {
+        /* SIGN UP */
 
-      if (authMode === "signup") {
         if (
-          !authName ||
-          !authEmail ||
-          !authPassword
+          authMode ===
+          "signup"
         ) {
-          throw new Error(
-            "Please fill in all the fields."
-          );
-        }
-
-        const response = await fetch(
-          `${BACKEND_URL}/api/auth/register`,
-          {
-            method: "POST",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-
-            body: JSON.stringify({
-              name: authName,
-              email: authEmail,
-              password: authPassword,
-            }),
+          if (
+            !authName ||
+            !authEmail ||
+            !authPassword
+          ) {
+            throw new Error(
+              "Please fill in all the fields."
+            );
           }
-        );
 
-        const data =
-          await response.text();
+          const response =
+            await fetch(
+              `${BACKEND_URL}/api/auth/register`,
+              {
+                method:
+                  "POST",
 
-        if (!response.ok) {
-          throw new Error(
-            data ||
-              "Unable to create your account."
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body: JSON.stringify(
+                  {
+                    name: authName,
+                    email:
+                      authEmail,
+                    password:
+                      authPassword,
+                  }
+                ),
+              }
+            );
+
+          const data =
+            await response.text();
+
+          if (!response.ok) {
+            throw new Error(
+              data ||
+                "Unable to create your account."
+            );
+          }
+
+          setAuthSuccess(
+            "Account created successfully! You can now log in. ✨"
           );
+
+          setAuthMode(
+            "login"
+          );
+
+          setAuthPassword(
+            ""
+          );
+
+          setAuthLoading(
+            false
+          );
+
+          return;
         }
 
-        setAuthSuccess(
-          "Account created successfully! You can now log in. ✨"
-        );
+        /* LOGIN */
 
-        setAuthMode("login");
-        setAuthPassword("");
-        setAuthLoading(false);
-
-        return;
-      }
-
-      /* LOGIN */
-
-      if (authMode === "login") {
         if (
-          !authEmail ||
-          !authPassword
+          authMode ===
+          "login"
         ) {
-          throw new Error(
-            "Please enter your email and password."
-          );
-        }
-
-        const response = await fetch(
-          `${BACKEND_URL}/api/auth/login`,
-          {
-            method: "POST",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-
-            body: JSON.stringify({
-              email: authEmail,
-              password: authPassword,
-            }),
+          if (
+            !authEmail ||
+            !authPassword
+          ) {
+            throw new Error(
+              "Please enter your email and password."
+            );
           }
+
+          const response =
+            await fetch(
+              `${BACKEND_URL}/api/auth/login`,
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body: JSON.stringify(
+                  {
+                    email:
+                      authEmail,
+                    password:
+                      authPassword,
+                  }
+                ),
+              }
+            );
+
+          const responseText =
+            await response.text();
+
+          let data = null;
+
+          try {
+            data =
+              JSON.parse(
+                responseText
+              );
+          } catch {
+            data = null;
+          }
+
+          if (!response.ok) {
+            throw new Error(
+              data?.message ||
+                data?.error ||
+                responseText ||
+                "Invalid email or password."
+            );
+          }
+
+          const token =
+            data?.token ||
+            responseText.trim();
+
+          if (!token) {
+            throw new Error(
+              "Login succeeded, but no authentication token was returned."
+            );
+          }
+
+          localStorage.setItem(
+            "smarttripToken",
+            token
+          );
+
+          const user = {
+            id:
+              data?.id ||
+              null,
+
+            name:
+              data?.name ||
+              "Traveler",
+
+            email:
+              data?.email ||
+              authEmail,
+          };
+
+          localStorage.setItem(
+            "smarttripUser",
+            JSON.stringify(
+              user
+            )
+          );
+
+          setCurrentUser(
+            user
+          );
+
+          setIsLoggedIn(
+            true
+          );
+
+          setUserMenuOpen(
+            false
+          );
+
+          await loadSavedTrips();
+
+          closeAuth();
+        }
+      } catch (err) {
+        console.error(
+          "Authentication error:",
+          err
         );
 
-        /*
-         * IMPORTANT:
-         * Your current backend returns the JWT
-         * as plain text:
-         *
-         * eyJhbGciOi...
-         *
-         * So we read the response as text first.
-         *
-         * This also supports JSON automatically
-         * if we later update the backend to return:
-         *
-         * {
-         *   "token": "...",
-         *   "id": 1,
-         *   "name": "...",
-         *   "email": "..."
-         * }
-         */
-
-        const responseText =
-          await response.text();
-
-        let data = null;
-
-        try {
-          data = JSON.parse(
-            responseText
-          );
-        } catch {
-          data = null;
-        }
-
-        if (!response.ok) {
-          throw new Error(
-            data?.message ||
-              data?.error ||
-              responseText ||
-              "Invalid email or password."
-          );
-        }
-
-        /*
-         * If backend returns JSON,
-         * use data.token.
-         *
-         * If backend returns plain JWT,
-         * use responseText directly.
-         */
-
-        const token =
-          data?.token ||
-          responseText.trim();
-
-        if (!token) {
-          throw new Error(
-            "Login succeeded, but no authentication token was returned."
-          );
-        }
-
-        localStorage.setItem(
-          "smarttripToken",
-          token
+        setAuthError(
+          err.message ||
+            "Something went wrong. Please try again."
         );
-
-        /*
-         * If backend gives us the user's
-         * actual name/email, use them.
-         *
-         * Otherwise fall back to the
-         * login email and Traveler.
-         */
-
-        const user = {
-          id: data?.id || null,
-          name:
-            data?.name ||
-            "Traveler",
-          email:
-            data?.email ||
-            authEmail,
-        };
-
-        localStorage.setItem(
-          "smarttripUser",
-          JSON.stringify(user)
+      } finally {
+        setAuthLoading(
+          false
         );
-
-        setCurrentUser(user);
-        setIsLoggedIn(true);
-        setUserMenuOpen(false);
-
-        await loadSavedTrips();
-
-        closeAuth();
       }
-    } catch (err) {
-      console.error(
-        "Authentication error:",
-        err
-      );
-
-      setAuthError(
-        err.message ||
-          "Something went wrong. Please try again."
-      );
-    } finally {
-      setAuthLoading(false);
-    }
-  };
+    };
 
   /* =======================================================
      LOGOUT
@@ -2004,108 +2680,124 @@ function App() {
      GENERATE ITINERARY
   ======================================================= */
 
-  const generateItinerary = async () => {
-    if (!isLoggedIn) {
-      setError(
-        "Please log in or create an account to generate your itinerary."
-      );
-
-      openAuth("login");
-
-      return;
-    }
-
-    if (
-      !destination ||
-      !days ||
-      !budget ||
-      !interests
-    ) {
-      setError(
-        "Please fill in all the travel details."
-      );
-
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-    setItinerary("");
-
-    try {
-      const token =
-        localStorage.getItem(
-          "smarttripToken"
+  const generateItinerary =
+    async () => {
+      if (!isLoggedIn) {
+        setError(
+          "Please log in or create an account to generate your itinerary."
         );
 
-        const aiInterests = `${interests}. Trip Style: ${tripStyle}. Start Point: ${startPoint || "Not specified"}.
+        openAuth("login");
+
+        return;
+      }
+
+      if (
+        !destination ||
+        !days ||
+        !budget ||
+        !interests
+      ) {
+        setError(
+          "Please fill in all the travel details."
+        );
+
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+      setItinerary("");
+
+      try {
+        const token =
+          localStorage.getItem(
+            "smarttripToken"
+          );
+
+        const aiInterests = `${interests}. Trip Style: ${tripStyle}. Start Point: ${
+          startPoint ||
+          "Not specified"
+        }.
 
 If Trip Style is "No Filter", do not apply any special travel-style constraints. Create a balanced itinerary based on the destination, budget, interests, trip duration, and start point.`;
 
+        const response =
+          await fetch(
+            `${BACKEND_URL}/api/ai/itinerary`,
+            {
+              method:
+                "POST",
 
-      const response = await fetch(
-        `${BACKEND_URL}/api/ai/itinerary`,
-        {
-          method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
 
-          headers: {
-            "Content-Type":
-              "application/json",
+                ...(token
+                  ? {
+                      Authorization: `Bearer ${token}`,
+                    }
+                  : {}),
+              },
 
-            ...(token
-              ? {
-                  Authorization: `Bearer ${token}`,
+              body: JSON.stringify(
+                {
+                  destination,
+                  days:
+                    Number(days),
+                  budget:
+                    Number(budget),
+                  interests:
+                    aiInterests,
                 }
-              : {}),
-          },
+              ),
+            }
+          );
 
-          body: JSON.stringify({
-            destination,
-            days: Number(days),
-            budget: Number(budget),
-            interests: aiInterests,
-          }),
+        const data =
+          await response.text();
+
+        if (!response.ok) {
+          throw new Error(
+            `Backend error (${response.status}): ${
+              data ||
+              "One quick step before you continue!"
+            }`
+          );
         }
-      );
 
-      const data =
-        await response.text();
+        setItinerary(data);
 
-      if (!response.ok) {
-        throw new Error(
-          `Backend error (${response.status}): ${
-            data ||
-            "One quick step before you continue!"
-          }`
+        setTimeout(
+          () => {
+            document
+              .getElementById(
+                "itinerary-result"
+              )
+              ?.scrollIntoView({
+                behavior:
+                  "smooth",
+                block: "start",
+              });
+          },
+          100
+        );
+      } catch (err) {
+        console.error(
+          "Itinerary error:",
+          err
+        );
+
+        setError(
+          err.message ||
+            "Unable to generate itinerary."
+        );
+      } finally {
+        setLoading(
+          false
         );
       }
-
-      setItinerary(data);
-
-      setTimeout(() => {
-        document
-          .getElementById(
-            "itinerary-result"
-          )
-          ?.scrollIntoView({
-            behavior: "smooth",
-            block: "start",
-          });
-      }, 100);
-    } catch (err) {
-      console.error(
-        "Itinerary error:",
-        err
-      );
-
-      setError(
-        err.message ||
-          "Unable to generate itinerary."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
   /* =======================================================
      PAGE
@@ -2124,7 +2816,10 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
           </span>
 
           <span>
-            Smart<span>Trip</span>
+            Smart
+            <span>
+              Trip
+            </span>
           </span>
         </div>
 
@@ -2154,7 +2849,9 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
               <button
                 className="login-button"
                 onClick={() =>
-                  openAuth("login")
+                  openAuth(
+                    "login"
+                  )
                 }
               >
                 Login
@@ -2163,7 +2860,9 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
               <button
                 className="nav-button signup-nav-button"
                 onClick={() =>
-                  openAuth("signup")
+                  openAuth(
+                    "signup"
+                  )
                 }
               >
                 Sign Up
@@ -2175,10 +2874,13 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                 className="user-menu-button"
                 onClick={() =>
                   setUserMenuOpen(
-                    (current) => !current
+                    (current) =>
+                      !current
                   )
                 }
-                aria-expanded={userMenuOpen}
+                aria-expanded={
+                  userMenuOpen
+                }
               >
                 <span className="user-avatar">
                   👤
@@ -2246,7 +2948,9 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                   </button>
 
                   <button
-                    onClick={logout}
+                    onClick={
+                      logout
+                    }
                   >
                     🚪 Logout
                   </button>
@@ -2276,10 +2980,12 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
           </h1>
 
           <p>
-            Tell us where you want to go,
-            what you love, and your budget.
-            SmartTrip creates a personalized
-            itinerary for you.
+            Tell us where you want
+            to go, what you love,
+            and your budget.
+            SmartTrip creates a
+            personalized itinerary
+            for you.
           </p>
 
           <button
@@ -2290,18 +2996,23 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                   "planner"
                 )
                 ?.scrollIntoView({
-                  behavior: "smooth",
+                  behavior:
+                    "smooth",
                 })
             }
           >
             Start Planning
-            <span>→</span>
+            <span>
+              →
+            </span>
           </button>
         </div>
 
         <div className="hero-visual">
           <div className="floating-card card-one">
-            <span>📍</span>
+            <span>
+              📍
+            </span>
 
             <div>
               <strong>
@@ -2316,7 +3027,9 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
 
           <div className="travel-circle">
             <div className="circle-content">
-              <span>🌍</span>
+              <span>
+                🌍
+              </span>
 
               <strong>
                 TRAVEL
@@ -2329,7 +3042,9 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
           </div>
 
           <div className="floating-card card-two">
-            <span>✨</span>
+            <span>
+              ✨
+            </span>
 
             <div>
               <strong>
@@ -2366,9 +3081,9 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
           </h2>
 
           <p>
-            Give us a few details and let
-            SmartTrip build your perfect
-            adventure.
+            Give us a few details
+            and let SmartTrip build
+            your perfect adventure.
           </p>
         </div>
 
@@ -2381,7 +3096,9 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
             <input
               type="text"
               placeholder="e.g. Paris, Tokyo, Bali..."
-              value={destination}
+              value={
+                destination
+              }
               onChange={(e) =>
                 setDestination(
                   e.target.value
@@ -2398,7 +3115,9 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
             <input
               type="text"
               placeholder="e.g. Hyderabad, Delhi, Mumbai..."
-              value={startPoint}
+              value={
+                startPoint
+              }
               onChange={(e) =>
                 setStartPoint(
                   e.target.value
@@ -2407,7 +3126,9 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
             />
 
             <small className="start-point-helper">
-              Optional — tell SmartTrip where your journey begins.
+              Optional — tell
+              SmartTrip where
+              your journey begins.
             </small>
           </div>
 
@@ -2457,7 +3178,9 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
             <input
               type="text"
               placeholder="Food, beaches, history, shopping..."
-              value={interests}
+              value={
+                interests
+              }
               onChange={(e) =>
                 setInterests(
                   e.target.value
@@ -2476,17 +3199,21 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
             </label>
 
             <p className="trip-style-subtitle">
-              How do you want your trip to feel?
+              How do you want
+              your trip to feel?
             </p>
 
             <div className="trip-style-grid">
               {tripStyles.map(
                 (style) => (
                   <button
-                    key={style.id}
+                    key={
+                      style.id
+                    }
                     type="button"
                     className={`trip-style-card ${
-                      tripStyle === style.id
+                      tripStyle ===
+                      style.id
                         ? "selected"
                         : ""
                     }`}
@@ -2497,16 +3224,22 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                     }
                   >
                     <span className="trip-style-emoji">
-                      {style.emoji}
+                      {
+                        style.emoji
+                      }
                     </span>
 
                     <span className="trip-style-content">
                       <strong>
-                        {style.id}
+                        {
+                          style.id
+                        }
                       </strong>
 
                       <small>
-                        {style.description}
+                        {
+                          style.description
+                        }
                       </small>
                     </span>
 
@@ -2527,17 +3260,23 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
             onClick={
               generateItinerary
             }
-            disabled={loading}
+            disabled={
+              loading
+            }
           >
             {loading ? (
               <>
                 <span className="spinner"></span>
-                Creating your itinerary...
+                Creating your
+                itinerary...
               </>
             ) : (
               <>
-                ✨ Generate My Itinerary
-                <span>→</span>
+                ✨ Generate My
+                Itinerary
+                <span>
+                  →
+                </span>
               </>
             )}
           </button>
@@ -2545,11 +3284,14 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
 
         {error && (
           <div className="error-box">
-            <span>⚠️</span>
+            <span>
+              ⚠️
+            </span>
 
             <div>
               <strong>
-                Something went wrong
+                Something went
+                wrong
               </strong>
 
               <p>
@@ -2567,7 +3309,8 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
             <div className="result-header">
               <div>
                 <div className="section-label">
-                  YOUR PERSONALIZED PLAN
+                  YOUR PERSONALIZED
+                  PLAN
                 </div>
 
                 <h2>
@@ -2581,7 +3324,8 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
 
               <div className="trip-summary">
                 <span>
-                  📍 {destination}
+                  📍{" "}
+                  {destination}
                 </span>
 
                 <span>
@@ -2589,11 +3333,15 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                 </span>
 
                 <span>
-                  {tripStyles.find(
-                    (style) =>
-                      style.id ===
-                      tripStyle
-                  )?.emoji}{" "}
+                  {
+                    tripStyles.find(
+                      (
+                        style
+                      ) =>
+                        style.id ===
+                        tripStyle
+                    )?.emoji
+                  }{" "}
                   {tripStyle}
                 </span>
               </div>
@@ -2601,20 +3349,34 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
 
             <div className="itinerary-card">
               <FormattedItinerary
-                rawItinerary={itinerary}
-                destination={destination}
-                startPoint={startPoint}
+                rawItinerary={
+                  itinerary
+                }
+                destination={
+                  destination
+                }
+                startPoint={
+                  startPoint
+                }
                 days={days}
-                budget={budget}
-                interests={interests}
+                budget={
+                  budget
+                }
+                interests={
+                  interests
+                }
               />
             </div>
 
             <div className="save-trip-container">
               <button
                 className="save-trip-button"
-                onClick={saveTrip}
-                disabled={savingTrip}
+                onClick={
+                  saveTrip
+                }
+                disabled={
+                  savingTrip
+                }
               >
                 {savingTrip ? (
                   <>
@@ -2623,8 +3385,11 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                   </>
                 ) : (
                   <>
-                    💾 Save This Trip
-                    <span>→</span>
+                    💾 Save This
+                    Trip
+                    <span>
+                      →
+                    </span>
                   </>
                 )}
               </button>
@@ -2644,7 +3409,8 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
         >
           <div className="section-heading">
             <div className="section-label">
-              YOUR TRAVEL COLLECTION
+              YOUR TRAVEL
+              COLLECTION
             </div>
 
             <h2>
@@ -2656,23 +3422,27 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
             </h2>
 
             <p>
-              Your saved adventures, all
-              in one place.
+              Your saved adventures,
+              all in one place.
             </p>
           </div>
 
           {tripsLoading ? (
             <div className="my-trips-message">
               <span className="spinner"></span>
-              Loading your trips...
+              Loading your
+              trips...
             </div>
           ) : tripsError ? (
             <div className="error-box">
-              <span>⚠️</span>
+              <span>
+                ⚠️
+              </span>
 
               <div>
                 <strong>
-                  Couldn't load your trips
+                  Couldn't load
+                  your trips
                 </strong>
 
                 <p>
@@ -2689,20 +3459,24 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                 </button>
               </div>
             </div>
-          ) : savedTrips.length === 0 ? (
+          ) : savedTrips.length ===
+            0 ? (
             <div className="empty-trips-card">
               <div className="empty-trips-icon">
                 🌍
               </div>
 
               <h3>
-                No saved trips yet
+                No saved trips
+                yet
               </h3>
 
               <p>
-                Generate an itinerary
-                and save it here for
-                your next adventure.
+                Generate an
+                itinerary and
+                save it here for
+                your next
+                adventure.
               </p>
 
               <button
@@ -2718,8 +3492,11 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                     })
                 }
               >
-                Create My First Trip
-                <span>→</span>
+                Create My
+                First Trip
+                <span>
+                  →
+                </span>
               </button>
             </div>
           ) : (
@@ -2728,7 +3505,9 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                 (trip) => (
                   <article
                     className="saved-trip-card"
-                    key={trip.id}
+                    key={
+                      trip.id
+                    }
                   >
                     <div className="saved-trip-top">
                       <div className="saved-trip-icon">
@@ -2753,18 +3532,24 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                     </span>
 
                     <h3>
-                      {trip.destination}
+                      {
+                        trip.destination
+                      }
                     </h3>
 
                     <div className="saved-trip-details">
                       <span>
                         💰{" "}
-                        {trip.budget}
+                        {
+                          trip.budget
+                        }
                       </span>
 
                       <span>
                         ❤️{" "}
-                        {trip.interests}
+                        {
+                          trip.interests
+                        }
                       </span>
                     </div>
 
@@ -2772,7 +3557,8 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                       <details className="saved-trip-itinerary">
                         <summary>
                           <span>
-                            🗺️ View itinerary
+                            🗺️ View
+                            itinerary
                           </span>
 
                           <span>
@@ -2829,8 +3615,9 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
           </h2>
 
           <p>
-            Everything you need to turn
-            your travel ideas into memorable
+            Everything you need
+            to turn your travel
+            ideas into memorable
             adventures.
           </p>
         </div>
@@ -2846,9 +3633,11 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
             </h3>
 
             <p>
-              Get personalized travel plans
-              generated around your interests
-              and preferences.
+              Get personalized
+              travel plans
+              generated around
+              your interests and
+              preferences.
             </p>
           </div>
 
@@ -2862,8 +3651,11 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
             </h3>
 
             <p>
-              Plan your adventure around the
-              budget you actually want to spend.
+              Plan your
+              adventure around
+              the budget you
+              actually want to
+              spend.
             </p>
           </div>
 
@@ -2877,9 +3669,11 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
             </h3>
 
             <p>
-              Get organized morning,
-              afternoon and evening activities
-              for every day.
+              Get organized
+              morning, afternoon
+              and evening
+              activities for every
+              day.
             </p>
           </div>
 
@@ -2893,9 +3687,11 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
             </h3>
 
             <p>
-              Your interests and trip style
-              shape the experience, making
-              every trip uniquely yours.
+              Your interests and
+              trip style shape the
+              experience, making
+              every trip uniquely
+              yours.
             </p>
           </div>
         </div>
@@ -2924,13 +3720,16 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
           </h2>
 
           <p>
-            SmartTrip uses artificial
-            intelligence to make travel
-            planning simple. Instead of
-            spending hours researching
-            destinations, tell us what you
-            want and we'll help turn it into
-            a journey.
+            SmartTrip uses
+            artificial intelligence
+            to make travel planning
+            simple. Instead of
+            spending hours
+            researching
+            destinations, tell us
+            what you want and we'll
+            help turn it into a
+            journey.
           </p>
         </div>
 
@@ -2978,13 +3777,17 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
           </span>
 
           <span>
-            Smart<span>Trip</span>
+            Smart
+            <span>
+              Trip
+            </span>
           </span>
         </div>
 
         <p>
-          AI-powered travel planning for
-          curious explorers.
+          AI-powered travel
+          planning for curious
+          explorers.
         </p>
 
         <span className="copyright">
@@ -2999,7 +3802,9 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
       {authMode && (
         <div
           className="auth-overlay"
-          onClick={closeAuth}
+          onClick={
+            closeAuth
+          }
         >
           <div
             className="auth-modal"
@@ -3009,26 +3814,31 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
           >
             <button
               className="auth-close"
-              onClick={closeAuth}
+              onClick={
+                closeAuth
+              }
             >
               ×
             </button>
 
             <div className="auth-icon">
-              {authMode === "login"
+              {authMode ===
+              "login"
                 ? "👋"
                 : "✨"}
             </div>
 
             <div className="auth-heading">
               <div className="section-label">
-                {authMode === "login"
+                {authMode ===
+                "login"
                   ? "WELCOME BACK"
                   : "JOIN SMARTTRIP"}
               </div>
 
               <h2>
-                {authMode === "login" ? (
+                {authMode ===
+                "login" ? (
                   <>
                     Welcome{" "}
                     <span>
@@ -3046,16 +3856,20 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
               </h2>
 
               <p>
-                {authMode === "login"
+                {authMode ===
+                "login"
                   ? "Log in to continue planning your next adventure."
                   : "Create your account and start planning amazing trips."}
               </p>
             </div>
 
             <form
-              onSubmit={handleAuth}
+              onSubmit={
+                handleAuth
+              }
             >
-              {authMode === "signup" && (
+              {authMode ===
+                "signup" && (
                 <div className="auth-input-group">
                   <label>
                     👤 NAME
@@ -3064,10 +3878,15 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                   <input
                     type="text"
                     placeholder="Your name"
-                    value={authName}
-                    onChange={(e) =>
+                    value={
+                      authName
+                    }
+                    onChange={(
+                      e
+                    ) =>
                       setAuthName(
-                        e.target.value
+                        e.target
+                          .value
                       )
                     }
                   />
@@ -3082,10 +3901,15 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                 <input
                   type="email"
                   placeholder="you@example.com"
-                  value={authEmail}
-                  onChange={(e) =>
+                  value={
+                    authEmail
+                  }
+                  onChange={(
+                    e
+                  ) =>
                     setAuthEmail(
-                      e.target.value
+                      e.target
+                        .value
                     )
                   }
                 />
@@ -3099,10 +3923,15 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                 <input
                   type="password"
                   placeholder="Enter your password"
-                  value={authPassword}
-                  onChange={(e) =>
+                  value={
+                    authPassword
+                  }
+                  onChange={(
+                    e
+                  ) =>
                     setAuthPassword(
-                      e.target.value
+                      e.target
+                        .value
                     )
                   }
                 />
@@ -3110,44 +3939,58 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
 
               {authError && (
                 <div className="auth-error">
-                  ⚠️ {authError}
+                  ⚠️{" "}
+                  {authError}
                 </div>
               )}
 
               {authSuccess && (
                 <div className="auth-success">
-                  ✅ {authSuccess}
+                  ✅{" "}
+                  {
+                    authSuccess
+                  }
                 </div>
               )}
 
               <button
                 type="submit"
                 className="auth-submit"
-                disabled={authLoading}
+                disabled={
+                  authLoading
+                }
               >
                 {authLoading ? (
                   <>
                     <span className="spinner"></span>
                     Please wait...
                   </>
-                ) : authMode === "login" ? (
+                ) : authMode ===
+                  "login" ? (
                   <>
                     🔐 Login
-                    <span>→</span>
+                    <span>
+                      →
+                    </span>
                   </>
                 ) : (
                   <>
-                    ✨ Create Account
-                    <span>→</span>
+                    ✨ Create
+                    Account
+                    <span>
+                      →
+                    </span>
                   </>
                 )}
               </button>
             </form>
 
             <div className="auth-switch">
-              {authMode === "login" ? (
+              {authMode ===
+              "login" ? (
                 <>
-                  Don't have an account?
+                  Don't have an
+                  account?
 
                   <button
                     type="button"
@@ -3162,7 +4005,8 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                 </>
               ) : (
                 <>
-                  Already have an account?
+                  Already have an
+                  account?
 
                   <button
                     type="button"
