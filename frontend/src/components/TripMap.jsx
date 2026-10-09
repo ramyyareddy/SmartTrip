@@ -1,4 +1,6 @@
-import React, { useEffect, useState } from "react";
+
+import React, { useEffect, useMemo, useState } from "react";
+
 import {
   MapContainer,
   TileLayer,
@@ -7,8 +9,8 @@ import {
   Polyline,
   useMap,
 } from "react-leaflet";
-import L from "leaflet";
 
+import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 const markerIcon = new L.Icon({
@@ -24,66 +26,49 @@ const markerIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
-/* -----------------------------------------
-   FIT MAP TO ALL LOCATIONS
------------------------------------------- */
+const HYDERABAD = [17.385, 78.4867];
 
 const FitMapView = ({
   startPosition,
   destinationPosition,
   placePositions,
+  journeyLine,
 }) => {
   const map = useMap();
 
   useEffect(() => {
-    const allPositions = [
+    const positions = [
       ...(startPosition ? [startPosition] : []),
-
-      ...(placePositions || []).map(
-        (place) => place.position
-      ),
-
-      ...(destinationPosition
-        ? [destinationPosition]
-        : []),
+      ...(placePositions || []).map((place) => place.position),
+      ...(destinationPosition ? [destinationPosition] : []),
     ];
 
-    if (allPositions.length > 1) {
-      const bounds = L.latLngBounds(allPositions);
-
-      map.fitBounds(bounds, {
-        padding: [50, 50],
+    if (positions.length > 1) {
+      map.fitBounds(L.latLngBounds(positions), {
+        padding: [40, 40],
+        maxZoom: 11,
       });
-
-      setTimeout(() => {
-        map.invalidateSize();
-      }, 150);
     } else if (destinationPosition) {
-      map.setView(destinationPosition, 12);
-
-      setTimeout(() => {
-        map.invalidateSize();
-      }, 150);
+      map.setView(destinationPosition, 11);
     }
+
+    const timer = setTimeout(() => map.invalidateSize(), 150);
+
+    return () => clearTimeout(timer);
   }, [
     startPosition,
     destinationPosition,
     placePositions,
+    journeyLine,
     map,
   ]);
 
   return null;
 };
 
-/* -----------------------------------------
-   PHOTON GEOCODING
------------------------------------------- */
-
 const geocodePhoton = async (query) => {
   const response = await fetch(
-    `https://photon.komoot.io/api/?q=${encodeURIComponent(
-      query
-    )}&limit=5`
+    `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=10`
   );
 
   if (!response.ok) {
@@ -92,22 +77,11 @@ const geocodePhoton = async (query) => {
 
   const data = await response.json();
 
-  if (
-    !data.features ||
-    !data.features.length
-  ) {
-    return [];
-  }
-
-  return data.features
+  return (data.features || [])
     .map((feature) => {
-      const coordinates =
-        feature.geometry?.coordinates;
+      const coordinates = feature.geometry?.coordinates;
 
-      if (
-        !coordinates ||
-        coordinates.length < 2
-      ) {
+      if (!coordinates || coordinates.length < 2) {
         return null;
       }
 
@@ -116,42 +90,24 @@ const geocodePhoton = async (query) => {
           Number(coordinates[1]),
           Number(coordinates[0]),
         ],
-        properties:
-          feature.properties || {},
+        properties: feature.properties || {},
       };
     })
     .filter(Boolean);
 };
 
-/* -----------------------------------------
-   NOMINATIM FALLBACK
------------------------------------------- */
-
 const geocodeNominatim = async (query) => {
   const response = await fetch(
-    `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(
-      query
-    )}`,
-    {
-      headers: {
-        Accept: "application/json",
-      },
-    }
+    `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=10&q=${encodeURIComponent(query)}`
   );
 
   if (!response.ok) {
-    throw new Error(
-      "Nominatim request failed"
-    );
+    throw new Error("Nominatim request failed");
   }
 
   const data = await response.json();
 
-  if (!data || !data.length) {
-    return [];
-  }
-
-  return data
+  return (data || [])
     .map((item) => {
       if (!item.lat || !item.lon) {
         return null;
@@ -162,328 +118,347 @@ const geocodeNominatim = async (query) => {
           Number(item.lat),
           Number(item.lon),
         ],
-        properties: item,
+        properties: {
+          ...item,
+          name: item.name || item.display_name,
+          display_name: item.display_name,
+        },
       };
     })
     .filter(Boolean);
 };
 
-/* -----------------------------------------
-   BASIC GEOCODER
------------------------------------------- */
-
 const geocode = async (query) => {
-  try {
-    const photonResults =
-      await geocodePhoton(query);
-
-    if (photonResults.length) {
-      return photonResults;
-    }
-  } catch (error) {
-    console.warn(
-      "Photon failed:",
-      query,
-      error
-    );
+  if (!query?.trim()) {
+    return [];
   }
 
   try {
-    const nominatimResults =
-      await geocodeNominatim(query);
+    const results = await geocodePhoton(query);
 
-    if (nominatimResults.length) {
-      return nominatimResults;
+    if (results.length) {
+      return results;
     }
   } catch (error) {
-    console.warn(
-      "Nominatim failed:",
-      query,
-      error
-    );
+    console.warn("Photon geocoding failed:", query, error);
   }
 
-  return [];
+  try {
+    return await geocodeNominatim(query);
+  } catch (error) {
+    console.warn("Nominatim geocoding failed:", query, error);
+    return [];
+  }
 };
 
-/* -----------------------------------------
-   DISTANCE BETWEEN TWO COORDINATES
-   HAVERSINE FORMULA
------------------------------------------- */
-
-const distanceKm = (
-  positionA,
-  positionB
-) => {
-  if (!positionA || !positionB) {
+const distanceKm = (a, b) => {
+  if (!a || !b) {
     return Infinity;
   }
 
-  const [lat1, lon1] = positionA;
-  const [lat2, lon2] = positionB;
+  const [lat1, lon1] = a;
+  const [lat2, lon2] = b;
+  const rad = Math.PI / 180;
 
-  const earthRadiusKm = 6371;
+  const dLat = (lat2 - lat1) * rad;
+  const dLon = (lon2 - lon1) * rad;
 
-  const dLat =
-    ((lat2 - lat1) * Math.PI) / 180;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * rad) *
+      Math.cos(lat2 * rad) *
+      Math.sin(dLon / 2) ** 2;
 
-  const dLon =
-    ((lon2 - lon1) * Math.PI) / 180;
-
-  const a =
-    Math.sin(dLat / 2) *
-      Math.sin(dLat / 2) +
-    Math.cos(
-      (lat1 * Math.PI) / 180
-    ) *
-      Math.cos(
-        (lat2 * Math.PI) / 180
-      ) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-
-  const c =
-    2 *
-    Math.atan2(
-      Math.sqrt(a),
-      Math.sqrt(1 - a)
-    );
-
-  return earthRadiusKm * c;
+  return 6371 * 2 * Math.atan2(
+    Math.sqrt(h),
+    Math.sqrt(1 - h)
+  );
 };
 
-/* -----------------------------------------
-   DESTINATION-AWARE PLACE GEOCODING
+// This is a visual journey arc, not an actual flight path.
+const createCurvedJourneyLine = (
+  start,
+  end,
+  segments = 80
+) => {
+  if (!start || !end) {
+    return [];
+  }
 
-   IMPORTANT:
-   We do NOT accept a place simply because
-   the name exists somewhere in the world.
+  let lon1 = start[1];
+  let lon2 = end[1];
 
-   The result must be reasonably close to
-   the selected destination.
------------------------------------------- */
+  if (Math.abs(lon2 - lon1) > 180) {
+    if (lon2 > lon1) {
+      lon1 += 360;
+    } else {
+      lon2 += 360;
+    }
+  }
+
+  const distance = distanceKm(start, end);
+  const height = Math.min(
+    18,
+    Math.max(1.5, distance / 900)
+  );
+
+  const points = [];
+
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+
+    const lat =
+      start[0] +
+      (end[0] - start[0]) * t +
+      Math.sin(Math.PI * t) * height;
+
+    let lon = lon1 + (lon2 - lon1) * t;
+
+    if (lon > 180) lon -= 360;
+    if (lon < -180) lon += 360;
+
+    points.push([lat, lon]);
+  }
+
+  return points;
+};
+
+const cleanMapPlace = (place) => {
+  let text = String(place || "")
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  text = text.split(/\s+[–—]\s+|\s+-\s+/)[0];
+  text = text.split(/\.\s+/)[0];
+
+  return text.replace(/^["“”']+|["“”']+$/g, "").trim();
+};
+
+const isExcludedPlace = (place) => {
+  const cleaned = place
+    .replace(/[.!,:;]+$/g, "")
+    .trim();
+
+  return /^(hotel|accommodation|lodging|free time|leisure time)$/i.test(
+    cleaned
+  );
+};
+
+const normalizePlaceList = (places = []) => {
+  const normalized = places.map((place) => {
+    if (typeof place === "string") {
+      return cleanMapPlace(place);
+    }
+
+    return cleanMapPlace(
+      place?.name ||
+        place?.place ||
+        place?.title ||
+        ""
+    );
+  });
+
+  return [
+    ...new Set(
+      normalized.filter(
+        (place) => place && !isExcludedPlace(place)
+      )
+    ),
+  ];
+};
+
+const getCountry = (properties = {}) =>
+  String(properties.country || "").trim().toLowerCase();
 
 const geocodePlaceNearDestination = async (
   place,
   destination,
-  destinationPosition
+  destinationPosition,
+  destinationProperties
 ) => {
-  if (
-    !place ||
-    !destination ||
-    !destinationPosition
-  ) {
+  if (!place || !destination || !destinationPosition) {
     return null;
   }
 
   const queries = [
-    `${place}, ${destination}`,
-    `${place}, ${destination}, India`,
+    ...new Set([
+      `${place}, ${destination}`,
+      place,
+    ]),
   ];
 
   const candidates = [];
 
   for (const query of queries) {
+    console.log("SmartTrip geocoding query:", query);
+
     try {
-      const results =
-        await geocode(query);
-
-      candidates.push(...results);
+      candidates.push(...(await geocode(query)));
     } catch (error) {
-      console.warn(
-        "Place query failed:",
-        query,
-        error
-      );
+      console.warn("Place geocoding failed:", query, error);
     }
+
+    // Avoid unnecessary rapid requests to public geocoders.
+    await new Promise((resolve) => setTimeout(resolve, 350));
   }
 
-  if (!candidates.length) {
-    return null;
-  }
-
-  /*
-   * Remove duplicate coordinates.
-   */
-  const uniqueCandidates = [];
+  const unique = [];
 
   for (const candidate of candidates) {
-    const alreadyExists =
-      uniqueCandidates.some(
-        (existing) =>
-          Math.abs(
-            existing.position[0] -
-              candidate.position[0]
-          ) < 0.0001 &&
-          Math.abs(
-            existing.position[1] -
-              candidate.position[1]
-          ) < 0.0001
-      );
+    const duplicate = unique.some(
+      (item) =>
+        distanceKm(
+          item.position,
+          candidate.position
+        ) < 0.05
+    );
 
-    if (!alreadyExists) {
-      uniqueCandidates.push(candidate);
+    if (!duplicate) {
+      unique.push(candidate);
     }
   }
 
-  /*
-   * Calculate distance from destination.
-   */
-  const candidatesWithDistance =
-    uniqueCandidates.map(
-      (candidate) => ({
+  const destinationCountry = getCountry(
+    destinationProperties
+  );
+
+  const ranked = unique
+    .map((candidate) => {
+      const properties = candidate.properties || {};
+      const country = getCountry(properties);
+
+      return {
         ...candidate,
         distance: distanceKm(
           candidate.position,
           destinationPosition
         ),
-      })
-    );
+        countryMatches:
+          Boolean(destinationCountry) &&
+          country === destinationCountry,
+      };
+    })
+    .sort((a, b) => a.distance - b.distance);
 
-  candidatesWithDistance.sort(
-    (a, b) =>
-      a.distance - b.distance
+  // Prefer a matching country when available; otherwise require
+  // the candidate to be reasonably close to the destination.
+  return (
+    ranked.find(
+      (item) =>
+        item.countryMatches ||
+        item.distance <= 150
+    ) || null
   );
-
-  /*
-   * Only accept places reasonably close
-   * to the selected destination.
-   *
-   * This prevents a place name from being
-   * accidentally resolved to another country.
-   */
-  const MAX_PLACE_DISTANCE_KM = 150;
-
-  const validCandidate =
-    candidatesWithDistance.find(
-      (candidate) =>
-        candidate.distance <=
-        MAX_PLACE_DISTANCE_KM
-    );
-
-  if (!validCandidate) {
-    console.warn(
-      "SmartTrip rejected place because it is too far from destination:",
-      place,
-      candidatesWithDistance.map(
-        (candidate) => ({
-          distanceKm:
-            Math.round(
-              candidate.distance
-            ),
-          position:
-            candidate.position,
-        })
-      )
-    );
-
-    return null;
-  }
-
-  return validCandidate;
 };
 
-/* -----------------------------------------
-   OSRM ROUTE
------------------------------------------- */
-
 const getRoute = async (positions) => {
-  if (
-    !positions ||
-    positions.length < 2
-  ) {
+  if (!positions || positions.length < 2) {
     return [];
   }
 
   const coordinates = positions
-    .map(
-      ([lat, lon]) =>
-        `${lon},${lat}`
-    )
+    .map(([lat, lon]) => `${lon},${lat}`)
     .join(";");
 
   const url =
-    `https://router.project-osrm.org/route/v1/driving/` +
-    `${coordinates}` +
-    `?overview=full&geometries=geojson`;
+    `https://router.project-osrm.org/route/v1/driving/${coordinates}` +
+    "?overview=full&geometries=geojson";
 
-  const response =
-    await fetch(url);
+  const response = await fetch(url);
 
   if (!response.ok) {
-    throw new Error(
-      "OSRM route request failed"
-    );
+    throw new Error("OSRM route request failed");
   }
 
-  const data =
-    await response.json();
+  const data = await response.json();
 
-  if (
-    data.code !== "Ok" ||
-    !data.routes ||
-    !data.routes.length
-  ) {
-    throw new Error(
-      "No route found"
-    );
+  if (data.code !== "Ok" || !data.routes?.length) {
+    throw new Error("No driving route found");
   }
 
-  const coordinatesFromRoute =
-    data.routes[0].geometry
-      .coordinates;
-
-  return coordinatesFromRoute.map(
-    ([lon, lat]) => [
-      lat,
-      lon,
-    ]
+  return data.routes[0].geometry.coordinates.map(
+    ([lon, lat]) => [lat, lon]
   );
 };
-
-/* -----------------------------------------
-   TRIP MAP
------------------------------------------- */
 
 const TripMap = ({
   destination = "",
   startPoint = "",
   places = [],
+  placesByDay = [],
 }) => {
-  const [
-    destinationPosition,
-    setDestinationPosition,
-  ] = useState(null);
+  const [selectedDay, setSelectedDay] = useState("all");
 
-  const [
-    startPointPosition,
-    setStartPointPosition,
-  ] = useState(null);
+  const [destinationPosition, setDestinationPosition] =
+    useState(null);
 
-  const [
-    placePositions,
-    setPlacePositions,
-  ] = useState([]);
+  const [destinationProperties, setDestinationProperties] =
+    useState({});
 
-  const [
-    routePositions,
-    setRoutePositions,
-  ] = useState([]);
+  const [startPointPosition, setStartPointPosition] =
+    useState(null);
 
-  const [
-    loading,
-    setLoading,
-  ] = useState(true);
+  const [placePositions, setPlacePositions] = useState([]);
+  const [routePositions, setRoutePositions] = useState([]);
+  const [journeyLine, setJourneyLine] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [mapError, setMapError] = useState("");
+  const [routeLoading, setRouteLoading] = useState(false);
 
-  const [
-    mapError,
-    setMapError,
-  ] = useState("");
+  const normalizedDays = useMemo(
+    () =>
+      (placesByDay || []).map((day, index) => ({
+        number: String(day.number ?? index + 1),
+        title: day.title || `Day ${day.number ?? index + 1}`,
+        places: normalizePlaceList(day.places || []),
+      })),
+    [placesByDay]
+  );
 
-  const [
-    routeLoading,
-    setRouteLoading,
-  ] = useState(false);
+  const hasDayGroups = normalizedDays.some(
+    (day) => day.places.length > 0
+  );
+
+  // Use the day-grouped data when available. The flat places prop
+  // remains as a fallback for older TripMap callers.
+  const activePlaces = useMemo(() => {
+    if (selectedDay === "all" || !hasDayGroups) {
+      return normalizePlaceList(places);
+    }
+
+    const day = normalizedDays.find(
+      (item) => item.number === selectedDay
+    );
+
+    return day?.places || [];
+  }, [
+    selectedDay,
+    hasDayGroups,
+    normalizedDays,
+    places,
+  ]);
+
+  const dayOptions = useMemo(
+    () =>
+      normalizedDays.filter(
+        (day) => day.places.length > 0
+      ),
+    [normalizedDays]
+  );
+
+  // Reset the filter if a different itinerary no longer contains
+  // the previously selected day.
+  useEffect(() => {
+    if (
+      selectedDay !== "all" &&
+      !dayOptions.some(
+        (day) => day.number === selectedDay
+      )
+    ) {
+      setSelectedDay("all");
+    }
+  }, [selectedDay, dayOptions]);
 
   useEffect(() => {
     let cancelled = false;
@@ -491,334 +466,212 @@ const TripMap = ({
     const findLocations = async () => {
       if (!destination.trim()) {
         setLoading(false);
+        setMapError(
+          "Enter a destination to display the map."
+        );
+        setDestinationPosition(null);
+        setPlacePositions([]);
+        setRoutePositions([]);
+        setJourneyLine([]);
         return;
       }
 
       setLoading(true);
       setMapError("");
-
       setDestinationPosition(null);
+      setDestinationProperties({});
       setStartPointPosition(null);
       setPlacePositions([]);
       setRoutePositions([]);
+      setJourneyLine([]);
+      setRouteLoading(false);
 
       try {
-        /* --------------------------------
-           1. DESTINATION
-        -------------------------------- */
+        // 1. Resolve the destination.
+        const destinationResults = await geocode(destination);
 
-        const destinationResults =
-          await geocode(
-            destination
-          );
-
-        if (
-          !destinationResults.length
-        ) {
+        if (!destinationResults.length) {
           throw new Error(
             "Destination could not be found."
           );
         }
 
-        /*
-         * Use the first destination result.
-         */
-        const destinationPositionData =
-          destinationResults[0]
-            .position;
+        const destinationResult =
+          destinationResults.find((item) => {
+            const p = item.properties || {};
+            return Boolean(
+              p.city || p.country || p.state
+            );
+          }) || destinationResults[0];
+
+        const destinationPos = destinationResult.position;
+        const destinationProps =
+          destinationResult.properties || {};
 
         if (cancelled) return;
 
-        setDestinationPosition(
-          destinationPositionData
-        );
-
-        /*
-         * Show map immediately.
-         */
+        setDestinationPosition(destinationPos);
+        setDestinationProperties(destinationProps);
         setLoading(false);
 
-        /* --------------------------------
-           2. START POINT
-        -------------------------------- */
+        // 2. Resolve the start point.
+        let startPos = null;
 
-        let startPosition = null;
+        const normalizedStart = startPoint
+          .trim()
+          .toLowerCase();
 
-        if (startPoint.trim()) {
-          try {
-            const startResults =
-              await geocode(
-                startPoint
-              );
+        console.log(
+          "SmartTrip start point:",
+          JSON.stringify(startPoint)
+        );
 
-            if (
-              startResults.length
-            ) {
-              startPosition =
-                startResults[0]
-                  .position;
+        console.log(
+          "SmartTrip normalized start:",
+          normalizedStart
+        );
 
-              if (!cancelled) {
-                setStartPointPosition(
-                  startPosition
-                );
-              }
-            }
-          } catch (error) {
-            console.warn(
-              "Could not locate start point:",
-              startPoint,
-              error
-            );
+        const isHyderabad =
+          /(^|[\s,.-])(hyderabad|hyd|secunderabad)(?=$|[\s,.-])/.test(
+            normalizedStart
+          );
+
+        if (isHyderabad) {
+          startPos = HYDERABAD;
+        } else if (normalizedStart) {
+          const startResults = await geocode(startPoint);
+
+          if (startResults.length) {
+            const requested = normalizedStart.split(/[,\s]+/)[0];
+
+            const matching = startResults.find((item) => {
+              const p = item.properties || {};
+
+              const label = [
+                p.name,
+                p.city,
+                p.town,
+                p.village,
+                p.state,
+                p.display_name,
+              ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+
+              return label.includes(requested);
+            });
+
+            startPos = (
+              matching || startResults[0]
+            ).position;
           }
         }
 
-        /* --------------------------------
-           3. NORMALIZE PLACES
-        -------------------------------- */
+        if (cancelled) return;
 
-        const cleanMapPlace = (
-          place
-        ) => {
-          return String(place || "")
-            // Remove descriptive text in parentheses.
-            // Example:
-            // "Bawarchi (local biryani)"
-            // becomes "Bawarchi"
-            .replace(
-              /\s*\([^)]*\)\s*/g,
-              ""
+        if (startPos) {
+          setStartPointPosition(startPos);
+
+          setJourneyLine(
+            createCurvedJourneyLine(
+              startPos,
+              destinationPos
             )
-            // Remove surrounding quotation marks.
-            .replace(
-              /^["“”']+|["“”']+$/g,
-              ""
-            )
-            .trim();
-        };
-
-        const normalizedPlaces =
-          places
-            .map((place) => {
-              let rawPlace = "";
-
-              if (
-                typeof place ===
-                "string"
-              ) {
-                rawPlace = place;
-              }
-
-              if (
-                place &&
-                typeof place ===
-                  "object"
-              ) {
-                rawPlace =
-                  place.name ||
-                  place.place ||
-                  place.title ||
-                  "";
-              }
-
-              return cleanMapPlace(
-                rawPlace
-              );
-            })
-            .filter(Boolean);
-
-        /*
-         * Remove duplicates.
-         */
-        const uniquePlaces = [
-          ...new Set(
-            normalizedPlaces
-          ),
-        ].slice(0, 8);
-
-        console.log(
-          "SmartTrip map places:",
-          uniquePlaces
-        );
-
-        /* --------------------------------
-           4. GEOCODE ITINERARY PLACES
-        -------------------------------- */
-
-        const locatedPlaces = [];
-
-        for (
-          const place of uniquePlaces
-        ) {
-          if (cancelled) {
-            return;
-          }
-
-          let placeResult = null;
-
-          try {
-            placeResult =
-              await geocodePlaceNearDestination(
-                place,
-                destination,
-                destinationPositionData
-              );
-          } catch (error) {
-            console.warn(
-              "Place geocoding failed:",
-              place,
-              error
-            );
-          }
-
-          if (
-            placeResult &&
-            placeResult.position &&
-            !cancelled
-          ) {
-            const newPlace = {
-              name: place,
-              position:
-                placeResult.position,
-            };
-
-            locatedPlaces.push(
-              newPlace
-            );
-
-            /*
-             * Display marker immediately.
-             */
-            setPlacePositions([
-              ...locatedPlaces,
-            ]);
-
-            console.log(
-              "SmartTrip place found:",
-              place,
-              placeResult.position,
-              `Distance from destination: ${Math.round(
-                placeResult.distance
-              )} km`
-            );
-          } else {
-            console.warn(
-              "SmartTrip could not safely locate:",
-              place
-            );
-          }
-
-          /*
-           * Give the public geocoders
-           * a small breathing interval.
-           */
-          await new Promise(
-            (resolve) =>
-              setTimeout(
-                resolve,
-                800
-              )
           );
         }
 
-        if (cancelled) {
-          return;
-        }
+        // 3. Locate only the currently selected set of places.
+        // Full Trip uses the original flat places list.
+        const uniquePlaces = normalizePlaceList(
+          activePlaces
+        ).slice(0, 8);
 
-        /* --------------------------------
-           5. BUILD JOURNEY STOPS
-        -------------------------------- */
+        const locatedPlaces = [];
 
-        const routeStops = [
-          ...(startPosition
-            ? [startPosition]
-            : []),
+        for (const place of uniquePlaces) {
+          if (cancelled) return;
 
-          ...locatedPlaces.map(
-            (place) =>
-              place.position
-          ),
-
-          destinationPositionData,
-        ];
-
-        console.log(
-          "SmartTrip route stops:",
-          routeStops
-        );
-
-        /* --------------------------------
-           6. BUILD ROAD ROUTE
-        -------------------------------- */
-
-        if (
-          routeStops.length >= 2
-        ) {
           try {
-            setRouteLoading(true);
-
-            const route =
-              await getRoute(
-                routeStops
+            const result =
+              await geocodePlaceNearDestination(
+                place,
+                destination,
+                destinationPos,
+                destinationProps
               );
 
-            if (!cancelled) {
-              setRoutePositions(
-                route
+            if (result?.position && !cancelled) {
+              locatedPlaces.push({
+                name: place,
+                position: result.position,
+              });
+
+              setPlacePositions([...locatedPlaces]);
+            } else {
+              console.warn(
+                "SmartTrip could not safely locate itinerary place:",
+                place
               );
             }
           } catch (error) {
             console.warn(
-              "Could not build complete route:",
+              "Could not locate itinerary place:",
+              place,
               error
             );
+          }
 
-            /*
-             * If the multi-stop route
-             * fails, fall back to
-             * start → destination.
-             */
-            if (startPosition) {
-              try {
-                const fallbackRoute =
-                  await getRoute([
-                    startPosition,
-                    destinationPositionData,
-                  ]);
+          await new Promise(
+            (resolve) => setTimeout(resolve, 500)
+          );
+        }
 
-                if (!cancelled) {
-                  setRoutePositions(
-                    fallbackRoute
-                  );
-                }
-              } catch (
-                fallbackError
-              ) {
-                console.warn(
-                  "Fallback route failed:",
-                  fallbackError
-                );
-              }
+        if (cancelled) return;
+
+        // 4. Build road routes only around the itinerary
+        // destination. The start point is excluded from OSRM.
+        const localStops = [
+          ...locatedPlaces.map(
+            (place) => place.position
+          ),
+          destinationPos,
+        ];
+
+        const stopsAreLocal =
+          localStops.length >= 2 &&
+          localStops.every(
+            (position) =>
+              distanceKm(position, destinationPos) <= 150
+          );
+
+        if (stopsAreLocal) {
+          setRouteLoading(true);
+
+          try {
+            const route = await getRoute(localStops);
+
+            if (!cancelled) {
+              setRoutePositions(route);
             }
+          } catch (error) {
+            console.warn(
+              "Local driving route unavailable:",
+              error
+            );
           } finally {
             if (!cancelled) {
-              setRouteLoading(
-                false
-              );
+              setRouteLoading(false);
             }
           }
         }
       } catch (error) {
-        console.error(
-          "Destination map error:",
-          error
-        );
+        console.error("Destination map error:", error);
 
         if (!cancelled) {
           setMapError(
             "Unable to find this destination on the map."
           );
-
           setLoading(false);
         }
       }
@@ -829,15 +682,7 @@ const TripMap = ({
     return () => {
       cancelled = true;
     };
-  }, [
-    destination,
-    startPoint,
-    places,
-  ]);
-
-  /* -----------------------------------------
-     LOADING
-  ------------------------------------------ */
+  }, [destination, startPoint, activePlaces]);
 
   if (loading) {
     return (
@@ -847,161 +692,158 @@ const TripMap = ({
     );
   }
 
-  /* -----------------------------------------
-     ERROR
-  ------------------------------------------ */
-
-  if (
-    mapError ||
-    !destinationPosition
-  ) {
+  if (mapError || !destinationPosition) {
     return (
       <div className="trip-map-error">
-        🗺️{" "}
-        {mapError ||
-          "Destination location unavailable."}
+        🗺️ {mapError || "Destination location unavailable."}
       </div>
     );
   }
 
-  /* -----------------------------------------
-     MAP
-  ------------------------------------------ */
+  const showFullTripJourney = selectedDay === "all";
 
   return (
     <div className="trip-map">
+      {hasDayGroups && (
+        <div
+          className="trip-map-day-filter"
+          role="group"
+          aria-label="Filter map by trip day"
+        >
+          <button
+            type="button"
+            className={`trip-map-day-button ${
+              selectedDay === "all" ? "active" : ""
+            }`}
+            aria-pressed={selectedDay === "all"}
+            onClick={() => setSelectedDay("all")}
+          >
+            Full Trip
+          </button>
+
+          {dayOptions.map((day) => (
+            <button
+              key={day.number}
+              type="button"
+              className={`trip-map-day-button ${
+                selectedDay === day.number ? "active" : ""
+              }`}
+              aria-pressed={selectedDay === day.number}
+              onClick={() => setSelectedDay(day.number)}
+            >
+              Day {day.number}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {hasDayGroups && (
+        <p className="trip-map-day-description">
+          {selectedDay === "all"
+            ? "Showing the overall journey and trip locations."
+            : `Showing locations for Day ${selectedDay}.`}
+        </p>
+      )}
+
       <MapContainer
-        center={
-          destinationPosition
-        }
+        center={destinationPosition}
         zoom={7}
-        scrollWheelZoom={true}
-        style={{
-          height: "420px",
-          width: "100%",
-        }}
+        scrollWheelZoom
+        style={{ height: "420px", width: "100%" }}
       >
         <FitMapView
-          startPosition={
-            startPointPosition
-          }
-          destinationPosition={
-            destinationPosition
-          }
-          placePositions={
-            placePositions
-          }
+          startPosition={startPointPosition}
+          destinationPosition={destinationPosition}
+          placePositions={placePositions}
+          journeyLine={showFullTripJourney ? journeyLine : []}
         />
 
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution="Tiles &copy; Esri — Sources: Esri, HERE, Garmin, OpenStreetMap contributors, and the GIS User Community"
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}"
         />
-
-        {/* --------------------------------
-            START POINT
-        --------------------------------- */}
 
         {startPointPosition && (
           <Marker
-            position={
-              startPointPosition
-            }
+            position={startPointPosition}
             icon={markerIcon}
           >
             <Popup>
               <strong>
-                🚩 {startPoint}
+                🚩 {startPoint || "Starting point"}
               </strong>
-
               <br />
-
               SmartTrip starting point
             </Popup>
           </Marker>
         )}
 
-        {/* --------------------------------
-            ITINERARY PLACES
-        --------------------------------- */}
-
-        {placePositions.map(
-          (place, index) => (
-            <Marker
-              key={`${place.name}-${index}`}
-              position={
-                place.position
-              }
-              icon={markerIcon}
-            >
-              <Popup>
-                <strong>
-                  📌 {place.name}
-                </strong>
-
-                <br />
-
-                SmartTrip itinerary location
-              </Popup>
-            </Marker>
-          )
-        )}
-
-        {/* --------------------------------
-            DESTINATION
-        --------------------------------- */}
+        {placePositions.map((place, index) => (
+          <Marker
+            key={`${place.name}-${index}`}
+            position={place.position}
+            icon={markerIcon}
+          >
+            <Popup>
+              <strong>📌 {place.name}</strong>
+              <br />
+              SmartTrip itinerary location
+            </Popup>
+          </Marker>
+        ))}
 
         <Marker
-          position={
-            destinationPosition
-          }
+          position={destinationPosition}
           icon={markerIcon}
         >
           <Popup>
-            <strong>
-              📍 {destination}
-            </strong>
-
+            <strong>📍 {destination}</strong>
             <br />
-
             SmartTrip destination
           </Popup>
         </Marker>
 
-        {/* --------------------------------
-            JOURNEY ROUTE
-        --------------------------------- */}
+        {showFullTripJourney && journeyLine.length > 1 && (
+          <Polyline
+            positions={journeyLine}
+            pathOptions={{
+              color: "#8b5cf6",
+              weight: 3,
+              opacity: 0.9,
+              dashArray: "8 10",
+            }}
+          />
+        )}
 
         {routePositions.length > 1 && (
           <Polyline
-            positions={
-              routePositions
-            }
+            positions={routePositions}
             pathOptions={{
-              color: "#6366f1",
+              color: "#2563eb",
               weight: 5,
-              opacity: 0.85,
+              opacity: 0.9,
             }}
           />
         )}
       </MapContainer>
 
-      {/* --------------------------------
-          ROUTE STATUS
-      -------------------------------- */}
-
       {routeLoading && (
         <div className="trip-map-route-status">
-          🛣️ Building your journey route...
+          🛣️ Building local driving route...
         </div>
       )}
 
-      {!routeLoading &&
-        routePositions.length > 1 && (
-          <div className="trip-map-route-status">
-            🛣️ Journey route calculated
-          </div>
-        )}
+      {!routeLoading && routePositions.length > 1 && (
+        <div className="trip-map-route-status">
+          🛣️ Local driving route calculated
+        </div>
+      )}
+
+      {showFullTripJourney && journeyLine.length > 1 && (
+        <div className="trip-map-route-status">
+          ✈️ Curved line indicates the overall journey, not an actual flight path.
+        </div>
+      )}
     </div>
   );
 };

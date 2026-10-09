@@ -25,6 +25,9 @@ public class Trip {
     @Column(columnDefinition = "TEXT")
     private String itinerary;
 
+    @Column(name = "currency")
+    private String currency = "INR";
+
     @ManyToOne
     @JoinColumn(name = "user_id")
     private User user;
@@ -43,6 +46,22 @@ public class Trip {
         this.endDate = endDate;
         this.budget = budget;
         this.interests = interests;
+        this.currency = "INR";
+    }
+
+    public Trip(String destination,
+                LocalDate startDate,
+                LocalDate endDate,
+                Double budget,
+                String interests,
+                String currency) {
+
+        this.destination = destination;
+        this.startDate = startDate;
+        this.endDate = endDate;
+        this.budget = budget;
+        this.interests = interests;
+        this.currency = (currency == null || currency.isBlank()) ? "INR" : currency;
     }
 
     public Long getId() {
@@ -99,6 +118,14 @@ public class Trip {
 
     public void setItinerary(String itinerary) {
         this.itinerary = itinerary;
+    }
+
+    public String getCurrency() {
+        return (currency == null || currency.isBlank()) ? "INR" : currency;
+    }
+
+    public void setCurrency(String currency) {
+        this.currency = currency;
     }
 
     public User getUser() {

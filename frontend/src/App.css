@@ -3289,3 +3289,147 @@ footer p {
   border-top: none;
   border-radius: 0 0 12px 12px;
 }
+
+
+.trip-map-day-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.trip-map-day-button {
+  border: 1px solid #d8d9e5;
+  border-radius: 20px;
+  padding: 9px 15px;
+  background: #ffffff;
+  color: #343449;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.trip-map-day-button:hover {
+  border-color: #8b5cf6;
+  color: #7c3aed;
+}
+
+.trip-map-day-button.active {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #ffffff;
+}
+
+.trip-map-day-button:focus-visible {
+  outline: 3px solid #c4b5fd;
+  outline-offset: 2px;
+}
+
+.trip-map-day-description {
+  margin: 0 0 12px;
+  color: #626277;
+  font-size: 13px;
+}
+
+
+
+
+/* Currency dropdown — match SmartTrip input styling */
+.currency-select {
+  color: #667085;
+  background: #ffffff;
+  border: 1px solid #e8ecf1;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.currency-select:focus {
+  border-color: #079477;
+  box-shadow: 0 0 0 3px rgba(7, 148, 119, 0.12);
+}
+
+.currency-select option {
+  color: #667085;
+  background: #ffffff;
+}
+
+/* =======================================================
+   DAY COST BREAKDOWN & ACTIONS
+======================================================= */
+
+.day-cost-breakdown {
+  margin: 16px 0 12px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.day-cost-breakdown-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.day-cost-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.day-cost-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.day-cost-label {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.day-cost-val {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.saved-trip-actions {
+  margin: 12px 0;
+  display: flex;
+  gap: 8px;
+}
+
+.restore-trip-button {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.restore-trip-button:hover {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+}

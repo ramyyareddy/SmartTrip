@@ -21,6 +21,9 @@ public class TripService {
     }
 
     public Trip createTrip(Trip trip, String email) {
+        if (trip == null || email == null || email.isBlank()) {
+            return null;
+        }
 
         User user = userRepository.findByEmail(email);
 
@@ -29,19 +32,41 @@ public class TripService {
         }
 
         trip.setUser(user);
+        if (trip.getCurrency() == null || trip.getCurrency().isBlank()) {
+            trip.setCurrency("INR");
+        }
 
         return tripRepository.save(trip);
     }
 
     public List<Trip> getMyTrips(String email) {
-        return tripRepository.findByUserEmail(email);
+        if (email == null || email.isBlank()) {
+            return List.of();
+        }
+        List<Trip> trips = tripRepository.findByUserEmail(email);
+        for (Trip trip : trips) {
+            if (trip.getCurrency() == null || trip.getCurrency().isBlank()) {
+                trip.setCurrency("INR");
+            }
+        }
+        return trips;
     }
 
     public Trip getMyTripById(Long id, String email) {
-        return tripRepository.findByIdAndUserEmail(id, email);
+        if (id == null || email == null || email.isBlank()) {
+            return null;
+        }
+        Trip trip = tripRepository.findByIdAndUserEmail(id, email);
+        if (trip != null && (trip.getCurrency() == null || trip.getCurrency().isBlank())) {
+            trip.setCurrency("INR");
+        }
+        return trip;
     }
 
     public Trip updateTrip(Long id, Trip trip, String email) {
+        if (id == null || trip == null || email == null || email.isBlank()) {
+            return null;
+        }
 
         Trip existingTrip =
                 tripRepository.findByIdAndUserEmail(id, email);
@@ -50,12 +75,27 @@ public class TripService {
             return null;
         }
 
-        existingTrip.setDestination(trip.getDestination());
-        existingTrip.setStartDate(trip.getStartDate());
-        existingTrip.setEndDate(trip.getEndDate());
-        existingTrip.setBudget(trip.getBudget());
-        existingTrip.setInterests(trip.getInterests());
-        existingTrip.setItinerary(trip.getItinerary());
+        if (trip.getDestination() != null && !trip.getDestination().isBlank()) {
+            existingTrip.setDestination(trip.getDestination());
+        }
+        if (trip.getStartDate() != null) {
+            existingTrip.setStartDate(trip.getStartDate());
+        }
+        if (trip.getEndDate() != null) {
+            existingTrip.setEndDate(trip.getEndDate());
+        }
+        if (trip.getBudget() != null) {
+            existingTrip.setBudget(trip.getBudget());
+        }
+        if (trip.getInterests() != null && !trip.getInterests().isBlank()) {
+            existingTrip.setInterests(trip.getInterests());
+        }
+        if (trip.getItinerary() != null && !trip.getItinerary().isBlank()) {
+            existingTrip.setItinerary(trip.getItinerary());
+        }
+        if (trip.getCurrency() != null && !trip.getCurrency().isBlank()) {
+            existingTrip.setCurrency(trip.getCurrency());
+        }
 
         return tripRepository.save(existingTrip);
     }

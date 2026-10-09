@@ -1,13 +1,23 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import "./App.css";
 import TripMap from "./components/TripMap";
+import {
+  fetchExchangeRates,
+  convertCurrency,
+} from "./utils/currency";
 
 /* =========================================================
    SMARTTRIP BACKEND
 ========================================================= */
 
-const BACKEND_URL = "https://smarttrips.up.railway.app";
+const BACKEND_URL =
+  import.meta.env.VITE_BACKEND_URL ||
+  (typeof window !== "undefined" &&
+  (window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1")
+    ? "http://localhost:8080"
+    : "https://smarttrips.up.railway.app");
 
 /* =========================================================
    TRIP STYLES
@@ -114,19 +124,25 @@ const isTableSeparator = (line) => {
   );
 };
 
-const isDayHeading = (line) => {
-  const text = cleanHeading(line);
 
-  return text.match(
-    /^Day\s+(\d+)\s*(?:[-–—:]\s*)?(.*)$/i
-  );
+const isDayHeading = (line) => {
+  const text = cleanHeading(line)
+    .replace(/^[^\w#*]+/, "")
+    .replace(/^\*+|\*+$/g, "")
+    .trim();
+
+  return text.match(/^(?:#{1,4}\s*)?Day\s+(\d+)\b[:\s\-–—]*(.*)$/i);
 };
 
 const isTimeHeading = (line) => {
-  const text = cleanHeading(line);
+  const text = cleanHeading(line)
+    .replace(/^[^\w#*]+/, "")
+    .replace(/^\*+|\*+$/g, "")
+    .replace(/:$/, "")
+    .trim();
 
   return text.match(
-    /^(Morning|Afternoon|Evening|Shopping|Transport|Food|Meals?)$/i
+    /^(Morning|Afternoon|Evening|Night|Activities|Activity|Shopping|Getting Around)\b/i
   );
 };
 
@@ -134,9 +150,10 @@ const isSummaryHeading = (line) => {
   const text = cleanHeading(line).toLowerCase();
 
   return (
-    text.includes("estimated expenses") ||
-    text.includes("expense summary") ||
+    text.includes("trip budget") ||
     text.includes("budget summary") ||
+    text.includes("expense summary") ||
+    text.includes("estimated expenses") ||
     text.includes("cost summary") ||
     text.includes("final budget") ||
     text.includes("total cost") ||
@@ -150,6 +167,7 @@ const isTipsHeading = (line) => {
   return (
     text.includes("smarttrip tips") ||
     text.includes("travel tips") ||
+    text.includes("practical travel tips") ||
     text === "tips" ||
     text.includes("tips &")
   );
@@ -264,127 +282,113 @@ const addPlaceToDay = (day, place) => {
 ========================================================= */
 
 const splitActivityLine = (rawText) => {
-  let text = removeListMarker(rawText);
-  text = cleanText(text);
+  let text = cleanText(removeListMarker(rawText));
 
-  if (!text) {
-    return {
-      activity: "",
-      place: "",
-      notes: "",
-      cost: "",
-    };
-  }
+  const emptyResult = {
+    activity: "",
+    place: "",
+    notes: "",
+    cost: "",
+  };
 
-  let notes = "";
-  let cost = "";
+  if (!text) return emptyResult;
 
-  const costMarker = text.match(
-    /(?:—|-)?\s*Approx\.?\s*Cost\s*:\s*(.*)$/i
-  );
+  // Remove Markdown bold/italic markers for parsing.
 
-  if (costMarker) {
-    const beforeCost = text
-      .slice(0, costMarker.index)
-      .replace(/[—-]\s*$/, "")
-      .trim();
+text = text.replace(/^\*{1,2}|\*{1,2}$/g, "").trim();
 
-    notes = cleanText(
-      costMarker[1]
-    );
+let activity;
+let place;
+let notes = "";
+let cost = "";
 
-    const extractedCost =
-      extractCost(notes);
+// Handle labeled AI output, including compact forms such as ACTIVITYVisit temple.
+text = text
+  .replace(/^(?:ACTIVITY|ACTIVITIES)\s*[•:—-]?\s*/i, "")
+  .replace(/\s+PLACE\s*:?\s*/i, " — ");
 
-    if (extractedCost) {
-      cost = extractedCost;
+// Extract an inline cost, e.g. "Approx. Cost: $25".
+const costMatch = text.match(
+  /(?:[—–-]\s*)?Approx\.?\s*Cost(?:\s*\([^)]*\))?\s*:?\s*(.+)$/i
+);
 
-      const escapedCost =
-        extractedCost.replace(
-          /[.*+?^${}()|[\]\\]/g,
-          "\\$&"
-        );
+  if (costMatch) {
+    const costText = cleanText(costMatch[1]);
+    const extracted = extractCost(costText);
 
-      notes = notes
-        .replace(
-          new RegExp(
-            `\\s*\\(${escapedCost}\\)\\s*$`,
-            "i"
-          ),
-          ""
-        )
-        .trim();
+    if (extracted) {
+      cost = extracted;
+      notes = cleanText(costText.replace(extracted, ""));
+    } else {
+      notes = costText;
     }
 
-    text = beforeCost;
+    text = text.slice(0, costMatch.index).trim();
+    text = text.replace(/[—–-]\s*$/, "").trim();
   }
 
+  // Handle separately labeled notes.
+  const notesMatch = text.match(
+    /\bNOTES?\s*:?\s*(.+)$/i
+  );
+
+  if (notesMatch) {
+    notes = [notes, cleanText(notesMatch[1])]
+      .filter(Boolean)
+      .join(" ");
+    text = text.slice(0, notesMatch.index).trim();
+    text = text.replace(/[|•—–-]\s*$/, "").trim();
+  }
+
+  // Handle separately labeled costs, e.g. COST18,000 or COST: $25.
+  const labeledCostMatch = text.match(
+    /\bCOST\s*:?\s*((?:₹|[$€£])?\s*\d[\d,.]*(?:\s*[kKmM])?(?:\s*[A-Z]{3})?)/i
+  );
+
+  if (labeledCostMatch) {
+    cost = cost || cleanText(labeledCostMatch[1]);
+    text = text.slice(0, labeledCostMatch.index).trim();
+    text = text.replace(/[|•—–-]\s*$/, "").trim();
+  }
+
+  // Split activity and place when separated by a dash.
   const parts = text
     .split(/\s+[—–-]\s+/)
     .map((part) => cleanText(part))
     .filter(Boolean);
-
-  let activity = "";
-  let place = "";
 
   if (parts.length >= 2) {
     activity = parts[0];
     place = parts[1];
 
     if (parts.length > 2) {
-      notes = notes
-        ? `${parts.slice(2).join(" — ")} ${notes}`
-        : parts.slice(2).join(" — ");
+      notes = [parts.slice(2).join(" — "), notes]
+        .filter(Boolean)
+        .join(" ");
     }
   } else {
     activity = parts[0] || text;
-
-    /*
-     * If there was no explicit "Activity — Place"
-     * structure, try to infer the place from the
-     * activity wording.
-     */
-    place = inferPlaceFromActivity(
-      activity
-    );
+    place = inferPlaceFromActivity(activity);
   }
 
   if (!cost && notes) {
-    const foundCost =
-      extractCost(notes);
-
-    if (foundCost) {
-      cost = foundCost;
-    }
+    cost = extractCost(notes) || "";
   }
 
-  const normalized =
-    activity.toLowerCase();
+  const normalized = activity.toLowerCase();
 
   if (
-    normalized === "activity" ||
-    normalized.includes(
-      "activity — place"
-    ) ||
-    normalized.includes(
-      "activity - place"
-    ) ||
-    normalized === "place" ||
-    normalized === "approx. cost"
+    !normalized ||
+    /^(activity|activities|place|notes?|cost|approx\.?\s*cost)$/.test(normalized)
   ) {
-    return {
-      activity: "",
-      place: "",
-      notes: "",
-      cost: "",
-    };
+    return emptyResult;
   }
 
   return {
-    activity,
-    place,
-    notes,
-    cost,
+    activity: cleanText(activity),
+    place: cleanText(place),
+    notes: cleanText(notes),
+    cost: cleanText(cost),
   };
 };
 
@@ -406,6 +410,15 @@ const createEmptyDay = (
   title:
     cleanHeading(title) || "",
   sections: [],
+  costBreakdown: {
+    accommodation: null,
+    food: null,
+    transport: null,
+    activities: null,
+    other: null,
+    subtotal: null,
+    isComplete: true,
+  },
   total: "",
   places: [],
   food: [],
@@ -660,9 +673,49 @@ const addTableRowToDay = (
 };
 
 /* =========================================================
+   COST LINE PARSER
+========================================================= */
+const parseCostLine = (plainLine) => {
+  const line = removeListMarker(plainLine);
+
+  const subtotalMatch = line.match(
+    /^(?:day\s*subtotal|daily\s*total|estimated\s*daily\s*total|subtotal|approx\.?\s*cost|total)\s*:\s*(.+)$/i
+  );
+  if (subtotalMatch) {
+    return { type: "subtotal", amount: parseMoneyAmount(subtotalMatch[1]), raw: subtotalMatch[1] };
+  }
+
+  const accomMatch = line.match(/^(?:accommodation|hotel|stay|lodging)\s*:\s*(.+)$/i);
+  if (accomMatch) {
+    return { type: "accommodation", amount: parseMoneyAmount(accomMatch[1]), raw: accomMatch[1] };
+  }
+
+  const foodMatch = line.match(/^(?:food|meals?|dining)\s*:\s*(.+)$/i);
+  if (foodMatch) {
+    return { type: "food", amount: parseMoneyAmount(foodMatch[1]), raw: foodMatch[1] };
+  }
+
+  const transportMatch = line.match(/^(?:local\s*transport(?:ation)?|transport(?:ation)?|transit)\s*:\s*(.+)$/i);
+  if (transportMatch) {
+    return { type: "transport", amount: parseMoneyAmount(transportMatch[1]), raw: transportMatch[1] };
+  }
+
+  const actMatch = line.match(/^(?:activities\s*and\s*attractions|attractions\s*and\s*activities|activities|attractions|sightseeing)\s*:\s*(.+)$/i);
+  if (actMatch) {
+    return { type: "activities", amount: parseMoneyAmount(actMatch[1]), raw: actMatch[1] };
+  }
+
+  const otherMatch = line.match(/^(?:other\s*(?:applicable\s*)?expenses|other|miscellaneous|contingency)\s*:\s*(.+)$/i);
+  if (otherMatch) {
+    return { type: "other", amount: parseMoneyAmount(otherMatch[1]), raw: otherMatch[1] };
+  }
+
+  return null;
+};
+
+/* =========================================================
    ITINERARY PARSER
 ========================================================= */
-
 const parseItinerary = (
   raw,
   fallbackDestination,
@@ -671,24 +724,14 @@ const parseItinerary = (
   fallbackInterests
 ) => {
   const parsed = {
-    title:
-      fallbackDestination ||
-      "Your SmartTrip Journey",
-
+    title: fallbackDestination || "Your SmartTrip Journey",
     overview: [],
-
     meta: {
-      budget: fallbackBudget
-        ? String(fallbackBudget)
-        : "",
-
-      interests:
-        fallbackInterests || "",
-
+      budget: fallbackBudget ? String(fallbackBudget) : "",
+      interests: fallbackInterests || "",
       currency: "",
       transport: "",
     },
-
     days: [],
     budgetSummary: [],
     finalTotal: "",
@@ -698,52 +741,24 @@ const parseItinerary = (
   const lines = String(raw || "")
     .replace(/\r/g, "")
     .split("\n")
-    .map((line) =>
-      line.trim()
-    );
+    .map((line) => line.trim());
 
   let currentDay = null;
   let currentSection = null;
   let mode = "overview";
 
-  for (
-    let i = 0;
-    i < lines.length;
-    i++
-  ) {
-    const originalLine =
-      lines[i];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
 
-    if (!originalLine) {
-      continue;
-    }
+    if (!line) continue;
 
-    const line =
-      originalLine.trim();
-
-    const dayMatch =
-      isDayHeading(line);
+    const dayMatch = isDayHeading(line);
 
     if (dayMatch) {
-      const dayNumber =
-        dayMatch[1];
-
-      const dayTitle =
-        dayMatch[2];
-
-      currentDay =
-        createEmptyDay(
-          dayNumber,
-          dayTitle
-        );
-
-      parsed.days.push(
-        currentDay
-      );
-
+      currentDay = createEmptyDay(dayMatch[1], dayMatch[2]);
+      parsed.days.push(currentDay);
       currentSection = null;
       mode = "day";
-
       continue;
     }
 
@@ -753,9 +768,7 @@ const parseItinerary = (
       continue;
     }
 
-    if (
-      isSummaryHeading(line)
-    ) {
+    if (isSummaryHeading(line)) {
       mode = "summary";
       currentSection = null;
       continue;
@@ -868,41 +881,43 @@ const parseItinerary = (
       cleanText(line);
 
     /* =====================================================
-       METADATA
+       METADATA (Only before itinerary days start)
     ===================================================== */
 
-    const metadataMatch =
-      cleaned.match(
-        /^(?:[-•*]\s*)?(Budget|Interests|Currency|Transport)\s*:?\s*(.+)$/i
-      );
-
-    if (metadataMatch) {
-      const key =
-        metadataMatch[1].toLowerCase();
-
-      parsed.meta[key] =
-        cleanText(
-          metadataMatch[2]
+    if (!currentDay) {
+      const metadataMatch =
+        cleaned.match(
+          /^(?:[-•*]\s*)?(Budget|Interests|Currency|Transport)\s*:?\s*(.+)$/i
         );
 
-      continue;
-    }
+      if (metadataMatch) {
+        const key =
+          metadataMatch[1].toLowerCase();
 
-    const inlineMeta =
-      cleaned.match(
-        /^(Budget|Interests|Currency|Transport)\s+(.+)$/i
-      );
+        parsed.meta[key] =
+          cleanText(
+            metadataMatch[2]
+          );
 
-    if (inlineMeta) {
-      const key =
-        inlineMeta[1].toLowerCase();
+        continue;
+      }
 
-      parsed.meta[key] =
-        cleanText(
-          inlineMeta[2]
+      const inlineMeta =
+        cleaned.match(
+          /^(Budget|Interests|Currency|Transport)\s+(.+)$/i
         );
 
-      continue;
+      if (inlineMeta) {
+        const key =
+          inlineMeta[1].toLowerCase();
+
+        parsed.meta[key] =
+          cleanText(
+            inlineMeta[2]
+          );
+
+        continue;
+      }
     }
 
     /* =====================================================
@@ -953,17 +968,14 @@ const parseItinerary = (
       const plainLine =
         cleanText(line);
 
-      const totalMatch =
-        plainLine.match(
-          /^(?:Approx\.?\s*Cost|Estimated Daily Total|Daily Total|Total)\s*:?\s*(.+)$/i
-        );
-
-      if (totalMatch) {
-        currentDay.total =
-          cleanText(
-            totalMatch[1]
-          );
-
+      const costItem = parseCostLine(plainLine);
+      if (costItem) {
+        if (costItem.type === "subtotal") {
+          currentDay.costBreakdown.subtotal = costItem.amount;
+          currentDay.total = costItem.amount != null ? String(costItem.amount) : costItem.raw;
+        } else {
+          currentDay.costBreakdown[costItem.type] = costItem.amount;
+        }
         continue;
       }
 
@@ -1112,18 +1124,28 @@ const parseItinerary = (
          STANDALONE COST
       =================================================== */
 
-      const standaloneCost =
-        plainLine.match(
-          /^(?:Approx\.?\s*Cost(?:\s*\([^)]*\))?)\s*:?\s*(.+)$/i
-        );
 
-      if (standaloneCost) {
-        currentDay.total =
-          cleanText(
-            standaloneCost[1]
-          );
+const standaloneCost = plainLine.match(
+  /^(?:Approx\.?\s*Cost(?:\s*\([^)]*\))?|Estimated Daily Total|Daily Total|Total)\s*:?\s*(.+)$/i
+);
 
-        continue;
+if (standaloneCost) {
+  currentDay.total = cleanText(standaloneCost[1]);
+  continue;
+}
+
+      // Last-resort activity parsing: some model responses omit bullets and dashes.
+      if (
+        plainLine &&
+        !/^(?:activity|activities|notes?|cost|place|places|food|transport|morning|afternoon|evening)\s*:?$/i.test(plainLine)
+      ) {
+        const activity = splitActivityLine(plainLine);
+        if (activity.activity) {
+          const section = currentSection || getOrCreateSection(currentDay, "Activities");
+          section.items.push(activity);
+          addPlaceToDay(currentDay, activity.place || inferPlaceFromActivity(activity.activity));
+          continue;
+        }
       }
     }
 
@@ -1247,63 +1269,110 @@ const parseItinerary = (
   }
 
   /* =======================================================
-     FALLBACK BUDGET SUMMARY
+     NORMALIZE COSTS AND PLACE EXTRACTION
   ======================================================= */
+  let calculatedTripTotal = 0;
+  let allDaysHaveTotals = parsed.days.length > 0;
 
-  if (
-    parsed.budgetSummary.length ===
-      0 &&
-    parsed.days.length > 0
-  ) {
-    parsed.days.forEach(
-      (day) => {
-        if (day.total) {
-          parsed.budgetSummary.push(
-            {
-              item: `Day ${day.number}`,
-              amount:
-                day.total,
-              usd: "",
-            }
-          );
+  parsed.days.forEach((day) => {
+    day.sections.forEach((section) => {
+      section.items.forEach((item) => {
+        if (!item.place && item.activity) {
+          const inferred = inferPlaceFromActivity(item.activity);
+          if (inferred) item.place = inferred;
+        }
+        if (item.place) addPlaceToDay(day, item.place);
+      });
+    });
+
+    const cb = day.costBreakdown;
+    const catSum =
+      (cb.accommodation || 0) +
+      (cb.food || 0) +
+      (cb.transport || 0) +
+      (cb.activities || 0) +
+      (cb.other || 0);
+
+    if (cb.subtotal != null && Number.isFinite(cb.subtotal)) {
+      day.total = String(cb.subtotal);
+      day.dayTotal = cb.subtotal;
+      calculatedTripTotal += cb.subtotal;
+    } else if (catSum > 0) {
+      cb.subtotal = catSum;
+      day.total = String(catSum);
+      day.dayTotal = catSum;
+      calculatedTripTotal += catSum;
+    } else {
+      const parsedTotal = parseMoneyAmount(day.total);
+      if (parsedTotal != null && Number.isFinite(parsedTotal)) {
+        day.dayTotal = parsedTotal;
+        calculatedTripTotal += parsedTotal;
+      } else {
+        day.dayTotal = null;
+        allDaysHaveTotals = false;
+        cb.isComplete = false;
+      }
+    }
+  });
+
+  const parsedFinalTotal = parseMoneyAmount(parsed.finalTotal);
+
+  if (allDaysHaveTotals) {
+    let oneTimeExpenses = 0;
+    parsed.budgetSummary.forEach((row) => {
+      if (/intercity|flights?|trains?/i.test(row.item)) {
+        const val = parseMoneyAmount(row.amount);
+        if (val != null && Number.isFinite(val)) {
+          oneTimeExpenses += val;
         }
       }
-    );
+    });
+
+    const reconciledTotal = calculatedTripTotal + oneTimeExpenses;
+    if (parsedFinalTotal == null || Math.abs(parsedFinalTotal - reconciledTotal) > 0.01) {
+      parsed.finalTotal = String(reconciledTotal);
+    }
+  } else if (parsedFinalTotal == null && calculatedTripTotal > 0) {
+    parsed.finalTotal = String(calculatedTripTotal);
   }
 
   /* =======================================================
-     FALLBACK DAYS
+     FALLBACK BUDGET SUMMARY
   ======================================================= */
+  if (parsed.budgetSummary.length === 0 && parsed.days.length > 0) {
+    let sumAccom = 0;
+    let sumFood = 0;
+    let sumTrans = 0;
+    let sumAct = 0;
+    let sumOther = 0;
 
-  if (
-    parsed.days.length ===
-      0 &&
-    Number(fallbackDays) > 0
-  ) {
-    for (
-      let i = 1;
-      i <= Number(fallbackDays);
-      i++
-    ) {
-      parsed.days.push(
-        createEmptyDay(i)
-      );
-    }
+    parsed.days.forEach((day) => {
+      const cb = day.costBreakdown;
+      if (cb.accommodation) sumAccom += cb.accommodation;
+      if (cb.food) sumFood += cb.food;
+      if (cb.transport) sumTrans += cb.transport;
+      if (cb.activities) sumAct += cb.activities;
+      if (cb.other) sumOther += cb.other;
+    });
+
+    if (sumAccom > 0) parsed.budgetSummary.push({ item: "Accommodation", amount: String(sumAccom) });
+    if (sumFood > 0) parsed.budgetSummary.push({ item: "Food & Dining", amount: String(sumFood) });
+    if (sumTrans > 0) parsed.budgetSummary.push({ item: "Local Transport", amount: String(sumTrans) });
+    if (sumAct > 0) parsed.budgetSummary.push({ item: "Activities & Attractions", amount: String(sumAct) });
+    if (sumOther > 0) parsed.budgetSummary.push({ item: "Other Expenses", amount: String(sumOther) });
   }
 
   /* =======================================================
      REMOVE COMPLETELY EMPTY DAYS
   ======================================================= */
-
-  parsed.days =
-    parsed.days.filter(
-      (day) =>
-        day.title ||
-        day.sections.length ||
-        day.total ||
-        day.places.length ||
-        day.food.length
-    );
+  parsed.days = parsed.days.filter(
+    (day) =>
+      day.title ||
+      day.sections.length ||
+      day.total ||
+      day.places.length ||
+      day.food.length
+  );
 
   return parsed;
 };
@@ -1318,10 +1387,7 @@ const renderInlineText = (
   const value =
     String(text || "");
 
-  const parts =
-    value.split(
-      /(\*\*[^*]+\*\*|\*[^*]+\*)/g
-    );
+    const parts = value.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
 
   return parts.map(
     (part, index) => {
@@ -1374,9 +1440,14 @@ const renderInlineText = (
    ITINERARY CARD COMPONENTS
 ========================================================= */
 
-const ActivityRow = ({
-  item,
-}) => {
+
+const ActivityRow = ({ item, displayMoney }) => {
+  const formattedCost = item.cost
+    ? displayMoney
+      ? displayMoney(item.cost)
+      : item.cost
+    : "";
+
   return (
     <div className="structured-activity">
       <div className="structured-activity-main">
@@ -1384,12 +1455,8 @@ const ActivityRow = ({
           <span className="activity-field-label">
             ACTIVITY
           </span>
-
           <strong>
-            {renderInlineText(
-              item.activity ||
-                "Activity"
-            )}
+            {renderInlineText(item.activity || "Activity")}
           </strong>
         </div>
 
@@ -1398,12 +1465,8 @@ const ActivityRow = ({
             <span className="activity-field-label">
               PLACE
             </span>
-
             <span className="activity-place">
-              📍{" "}
-              {renderInlineText(
-                item.place
-              )}
+              📍 {renderInlineText(item.place)}
             </span>
           </div>
         )}
@@ -1413,25 +1476,15 @@ const ActivityRow = ({
             <span className="activity-field-label">
               NOTES
             </span>
-
-            <p>
-              {renderInlineText(
-                item.notes
-              )}
-            </p>
+            <p>{renderInlineText(item.notes)}</p>
           </div>
         )}
       </div>
 
       {item.cost && (
         <div className="activity-cost">
-          <span>
-            COST
-          </span>
-
-          <strong>
-            {item.cost}
-          </strong>
+          <span>COST</span>
+          <strong>{formattedCost}</strong>
         </div>
       )}
     </div>
@@ -1439,7 +1492,7 @@ const ActivityRow = ({
 };
 
 const TimeSection = ({
-  section,
+  section, displayMoney
 }) => {
   if (
     !section ||
@@ -1499,6 +1552,7 @@ const TimeSection = ({
             <ActivityRow
               key={`${section.key}-${index}`}
               item={item}
+              displayMoney={displayMoney}
             />
           )
         )}
@@ -1509,6 +1563,7 @@ const TimeSection = ({
 
 const DayCard = ({
   day,
+  displayMoney,
 }) => {
   return (
     <article className="day-card timeline-day-card">
@@ -1538,6 +1593,7 @@ const DayCard = ({
             <TimeSection
               key={`${day.number}-${index}`}
               section={section}
+              displayMoney={displayMoney}
             />
           )
         )}
@@ -1590,6 +1646,46 @@ const DayCard = ({
           </div>
         )}
 
+        {day.costBreakdown && (day.costBreakdown.accommodation != null || day.costBreakdown.food != null || day.costBreakdown.transport != null || day.costBreakdown.activities != null || day.costBreakdown.other != null) && (
+          <div className="day-cost-breakdown">
+            <div className="day-cost-breakdown-title">
+              💵 ESTIMATED DAY EXPENSES
+            </div>
+            <div className="day-cost-items">
+              {day.costBreakdown.accommodation != null && (
+                <div className="day-cost-item">
+                  <span>🏨 Accommodation</span>
+                  <strong>{displayMoney ? displayMoney(day.costBreakdown.accommodation) : day.costBreakdown.accommodation}</strong>
+                </div>
+              )}
+              {day.costBreakdown.food != null && (
+                <div className="day-cost-item">
+                  <span>🍽️ Food & Dining</span>
+                  <strong>{displayMoney ? displayMoney(day.costBreakdown.food) : day.costBreakdown.food}</strong>
+                </div>
+              )}
+              {day.costBreakdown.transport != null && (
+                <div className="day-cost-item">
+                  <span>🚕 Local Transport</span>
+                  <strong>{displayMoney ? displayMoney(day.costBreakdown.transport) : day.costBreakdown.transport}</strong>
+                </div>
+              )}
+              {day.costBreakdown.activities != null && (
+                <div className="day-cost-item">
+                  <span>🎟️ Activities & Attractions</span>
+                  <strong>{displayMoney ? displayMoney(day.costBreakdown.activities) : day.costBreakdown.activities}</strong>
+                </div>
+              )}
+              {day.costBreakdown.other != null && (
+                <div className="day-cost-item">
+                  <span>📦 Other Expenses</span>
+                  <strong>{displayMoney ? displayMoney(day.costBreakdown.other) : day.costBreakdown.other}</strong>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {day.total && (
           <div className="day-total-card">
             <div>
@@ -1604,8 +1700,10 @@ const DayCard = ({
             </div>
 
             <div className="day-total-amount">
-              {day.total}
-            </div>
+  {displayMoney
+    ? displayMoney(day.total)
+    : day.total}
+</div>
           </div>
         )}
       </div>
@@ -1616,77 +1714,60 @@ const DayCard = ({
 const BudgetSummary = ({
   summary,
   finalTotal,
+  displayMoney,
 }) => {
   if (
-    (!summary ||
-      !summary.length) &&
+    (!summary || !summary.length) &&
     !finalTotal
   ) {
     return null;
   }
 
+
   return (
     <div className="final-budget-card">
       <div className="final-budget-header">
-        <div className="budget-icon">
-          💰
-        </div>
+        <div className="budget-icon">💰</div>
 
         <div>
           <span className="budget-kicker">
             BUDGET OVERVIEW
           </span>
-
-          <h3>
-            Estimated Expenses
-          </h3>
+          <h3>Estimated Expenses</h3>
         </div>
       </div>
 
-      {summary &&
-        summary.length > 0 && (
-          <div className="budget-summary-list">
-            {summary.map(
-              (
-                row,
-                index
-              ) => (
-                <div
-                  className="budget-summary-row"
-                  key={index}
-                >
-                  <span>
-                    {row.item ||
-                      `Expense ${
-                        index +
-                        1
-                      }`}
-                  </span>
-
-                  <strong>
-                    {row.amount}
-                  </strong>
-                </div>
-              )
-            )}
-          </div>
-        )}
+      {summary && summary.length > 0 && (
+        <div className="budget-summary-list">
+          {summary.map((row, index) => (
+            <div
+              className="budget-summary-row"
+              key={index}
+            >
+              <span>
+                {row.item || `Expense ${index + 1}`}
+              </span>
+              <strong>
+  {displayMoney
+    ? displayMoney(row.amount)
+    : row.amount}
+</strong>
+            </div>
+          ))}
+        </div>
+      )}
 
       {finalTotal && (
         <div className="budget-final-total">
           <div>
-            <span>
-              ESTIMATED TOTAL
-            </span>
-
-            <strong>
-              Total trip cost
-            </strong>
+            <span>ESTIMATED TOTAL</span>
+            <strong>Total trip cost</strong>
           </div>
-
           <strong>
-            {finalTotal}
-          </strong>
+  {displayMoney
+    ? displayMoney(finalTotal)
+    : finalTotal}
+</strong>
         </div>
       )}
     </div>
@@ -1754,6 +1835,7 @@ const TipsCard = ({
 
 const FormattedItinerary = ({
   rawItinerary,
+  displayMoney,
   destination,
   startPoint,
   days,
@@ -1778,16 +1860,22 @@ const FormattedItinerary = ({
     ]
   );
 
-  const mapPlaces =
-    useMemo(
-      () =>
-        parsed.days.flatMap(
-          (day) =>
-            day.places ||
-            []
-        ),
-      [parsed.days]
-    );
+
+const placesByDay = useMemo(
+  () =>
+    parsed.days.map((day) => ({
+      number: day.number,
+      title: day.title || `Day ${day.number}`,
+      places: day.places || [],
+    })),
+  [parsed.days]
+);
+
+const mapPlaces = useMemo(
+  () =>
+    placesByDay.flatMap((day) => day.places),
+  [placesByDay]
+);
 
   console.log(
     "SmartTrip parsed days:",
@@ -1808,17 +1896,13 @@ const FormattedItinerary = ({
     <div className="formatted-itinerary">
       {/* INTERACTIVE MAP */}
 
-      <TripMap
-        destination={
-          destination
-        }
-        startPoint={
-          startPoint
-        }
-        places={
-          mapPlaces
-        }
-      />
+
+<TripMap
+  destination={destination}
+  startPoint={startPoint}
+  places={mapPlaces}
+  placesByDay={placesByDay}
+/>
 
       {/* ITINERARY OVERVIEW */}
 
@@ -1995,6 +2079,7 @@ const FormattedItinerary = ({
             <DayCard
               key={index}
               day={day}
+              displayMoney={displayMoney}
             />
           )
         )}
@@ -2009,6 +2094,7 @@ const FormattedItinerary = ({
         finalTotal={
           parsed.finalTotal
         }
+        displayMoney={displayMoney}
       />
 
       {/* TRAVEL TIPS */}
@@ -2043,7 +2129,42 @@ const FormattedItinerary = ({
    MAIN APP
 ========================================================= */
 
+const parseMoneyAmount = (input) => {
+  if (typeof input === "number") return Number.isFinite(input) ? input : null;
+  if (input == null) return null;
+  const text = String(input).trim();
+  if (!text) return null;
+  if (/\bfree\b/i.test(text)) return 0;
+  const match = text.replace(/,/g, "").match(/[-+]?\d+(?:\.\d+)?\s*[kKmM]?/);
+  if (!match) return null;
+  const token = match[0].replace(/\s/g, "");
+  const suffix = token.slice(-1).toLowerCase();
+  let value = Number(/[km]$/.test(token) ? token.slice(0, -1) : token);
+  if (!Number.isFinite(value)) return null;
+  if (suffix === "k") value *= 1000;
+  if (suffix === "m") value *= 1000000;
+  return value;
+};
+
+const formatMoney = (amount, currency = "INR") => {
+  const value = Number(amount);
+
+  if (!Number.isFinite(value)) return "—";
+
+  return new Intl.NumberFormat("en", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2,
+  }).format(value);
+};
+
+
+
 function App() {
+  const [currency, setCurrency] = useState("INR");
+  const [baseCurrency, setBaseCurrency] = useState("INR");
+  const [exchangeRates, setExchangeRates] = useState(null);
+  const [exchangeRateWarning, setExchangeRateWarning] = useState("");
   /* =======================================================
      PLANNER STATE
   ======================================================= */
@@ -2165,6 +2286,62 @@ function App() {
     )
   );
 
+  // Fetch exchange rates whenever display currency differs from base currency
+  useEffect(() => {
+    let isMounted = true;
+    const base = (baseCurrency || "INR").toUpperCase();
+    const target = (currency || "INR").toUpperCase();
+
+    if (base !== target) {
+      fetchExchangeRates(base)
+        .then((rates) => {
+          if (!isMounted) return;
+          if (rates) {
+            setExchangeRates(rates);
+            setExchangeRateWarning("");
+          } else {
+            setExchangeRateWarning(`Live exchange rates from ${base} to ${target} are currently unavailable.`);
+          }
+        })
+        .catch(() => {
+          if (!isMounted) return;
+          setExchangeRateWarning("Exchange rates unavailable. Displaying original amounts.");
+        });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [baseCurrency, currency]);
+
+  // Load saved trips on mount if user is logged in
+  useEffect(() => {
+    if (isLoggedIn) {
+      loadSavedTrips();
+    }
+  }, [isLoggedIn]);
+
+  // Explicit conversion and formatting of monetary amounts
+  const displayMoney = (amountInBaseCurrency, itemCurrency = null) => {
+    const amount = parseMoneyAmount(amountInBaseCurrency);
+    if (amount == null || !Number.isFinite(amount)) {
+      return amountInBaseCurrency ? String(amountInBaseCurrency) : "—";
+    }
+
+    const fromCurr = (itemCurrency || baseCurrency || "INR").toUpperCase();
+    const toCurr = (currency || "INR").toUpperCase();
+
+    if (fromCurr === toCurr) {
+      return formatMoney(amount, toCurr);
+    }
+
+    const conversion = convertCurrency(amount, fromCurr, toCurr, exchangeRates);
+    if (conversion.converted) {
+      return formatMoney(conversion.amount, toCurr);
+    }
+
+    // Never relabel unconverted amounts; indicate limitation clearly
+    return `${formatMoney(amount, fromCurr)} (${toCurr} rate unavailable)`;
+  };
   /* =======================================================
      CURRENT USER
   ======================================================= */
@@ -2252,6 +2429,15 @@ function App() {
           );
 
         if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            localStorage.removeItem("smarttripToken");
+            localStorage.removeItem("smarttripUser");
+            setIsLoggedIn(false);
+            setCurrentUser(null);
+            setSavedTrips([]);
+            setTripsError("Your login session has expired. Please log in again to view your saved trips.");
+            return;
+          }
           throw new Error(
             "Unable to load your saved trips."
           );
@@ -2287,6 +2473,8 @@ function App() {
   ======================================================= */
 
   const saveTrip = async () => {
+    if (savingTrip) return;
+
     const token =
       localStorage.getItem(
         "smarttripToken"
@@ -2331,20 +2519,27 @@ function App() {
                 budget:
                   Number(budget),
                 interests,
+                currency: baseCurrency || currency || "INR",
                 itinerary,
               }
             ),
           }
         );
 
-      const data =
-        await response.text();
+
+const data = await response.text();
 
       if (!response.ok) {
-        throw new Error(
-          data ||
-            "Unable to save your trip."
+        console.error("Save trip failed:", {
+          status: response.status,
+          body: data || "<empty response body>",
+        });
+        const detail = data.trim() || (
+          response.status === 401 || response.status === 403
+            ? "The backend rejected this request. Please log in again."
+            : "The server did not provide additional details."
         );
+        throw new Error(`Save failed (${response.status}): ${detail}`);
       }
 
       await loadSavedTrips();
@@ -2441,6 +2636,28 @@ function App() {
         );
       }
     };
+
+  /* =======================================================
+     RESTORE TRIP TO PLANNER
+  ======================================================= */
+
+  const restoreTripToPlanner = (trip) => {
+    if (!trip) return;
+    setDestination(trip.destination || "");
+    setBudget(trip.budget != null ? String(trip.budget) : "");
+    setInterests(trip.interests || "");
+    const tripCurr = trip.currency || "INR";
+    setBaseCurrency(tripCurr);
+    setCurrency(tripCurr);
+    if (trip.itinerary) {
+      setItinerary(trip.itinerary);
+      const parsed = parseItinerary(trip.itinerary);
+      if (parsed && parsed.days && parsed.days.length > 0) {
+        setDays(String(parsed.days.length));
+      }
+    }
+    document.getElementById("planner")?.scrollIntoView({ behavior: "smooth" });
+  };
 
   /* =======================================================
      LOGIN / SIGNUP
@@ -2682,6 +2899,10 @@ function App() {
 
   const generateItinerary =
     async () => {
+      if (loading) {
+        return; // Guard against accidental duplicate generation requests
+      }
+
       if (!isLoggedIn) {
         setError(
           "Please log in or create an account to generate your itinerary."
@@ -2705,6 +2926,12 @@ function App() {
         return;
       }
 
+      const requestedDays = Number(days);
+      if (!Number.isInteger(requestedDays) || requestedDays < 1 || requestedDays > 30) {
+        setError("Please enter a valid trip duration between 1 and 30 days.");
+        return;
+      }
+
       setLoading(true);
       setError("");
       setItinerary("");
@@ -2720,7 +2947,7 @@ function App() {
           "Not specified"
         }.
 
-If Trip Style is "No Filter", do not apply any special travel-style constraints. Create a balanced itinerary based on the destination, budget, interests, trip duration, and start point.`;
+If Trip Style is "No Filter", do not apply any special travel-style constraints. Create a balanced itinerary based on the destination, budget, interests, trip duration, and start point. IMPORTANT: Provide every activity cost, daily total, and estimated trip total in the user's selected currency (${currency}). Do not output INR unless INR is selected. Use numeric amounts with an explicit ${currency} label where appropriate. Never merely change a currency symbol without converting the underlying value. Use a separate line for each Day heading and include a Place field or a clear visit/explore/eat-at phrase for every location-based activity.`;
 
         const response =
           await fetch(
@@ -2744,11 +2971,12 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                 {
                   destination,
                   days:
-                    Number(days),
+                    requestedDays,
                   budget:
                     Number(budget),
                   interests:
                     aiInterests,
+                  currency,
                 }
               ),
             }
@@ -2761,11 +2989,21 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
           throw new Error(
             `Backend error (${response.status}): ${
               data ||
-              "One quick step before you continue!"
+              "Unable to generate itinerary from AI providers."
             }`
           );
         }
 
+        // Validate that the returned itinerary has all requested days
+        const parsed = parseItinerary(data);
+        if (!parsed || !parsed.days || parsed.days.length < requestedDays) {
+          const generatedCount = parsed && parsed.days ? parsed.days.length : 0;
+          throw new Error(
+            `Incomplete itinerary received (${generatedCount} of ${requestedDays} days generated). Please click Generate again.`
+          );
+        }
+
+        setBaseCurrency(currency);
         setItinerary(data);
 
         setTimeout(
@@ -3167,6 +3405,29 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                   )
                 }
               />
+
+
+
+<label>
+  💱 CURRENCY
+</label>
+
+<select
+  className="currency-select"
+  value={currency}
+  onChange={(e) => setCurrency(e.target.value)}
+>
+  <option value="INR">INR (₹) - Indian Rupee</option>
+  <option value="USD">USD ($) - US Dollar</option>
+  <option value="EUR">EUR (€) - Euro</option>
+  <option value="GBP">GBP (£) - British Pound</option>
+  <option value="AED">AED (د.إ) - UAE Dirham</option>
+  <option value="JPY">JPY (¥) - Japanese Yen</option>
+  <option value="AUD">AUD (A$) - Australian Dollar</option>
+  <option value="CAD">CAD (C$) - Canadian Dollar</option>
+  <option value="SGD">SGD (S$) - Singapore Dollar</option>
+</select>
+
             </div>
           </div>
 
@@ -3352,6 +3613,7 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                 rawItinerary={
                   itinerary
                 }
+                displayMoney={displayMoney}
                 destination={
                   destination
                 }
@@ -3449,14 +3711,23 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                   {tripsError}
                 </p>
 
-                <button
-                  className="retry-trips-button"
-                  onClick={
-                    loadSavedTrips
-                  }
-                >
-                  Try Again
-                </button>
+                {tripsError.includes("log in") || tripsError.includes("expired") ? (
+                  <button
+                    type="button"
+                    className="retry-trips-button"
+                    onClick={() => openAuth("login")}
+                  >
+                    Log In
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="retry-trips-button"
+                    onClick={loadSavedTrips}
+                  >
+                    Try Again
+                  </button>
+                )}
               </div>
             </div>
           ) : savedTrips.length ===
@@ -3540,9 +3811,7 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                     <div className="saved-trip-details">
                       <span>
                         💰{" "}
-                        {
-                          trip.budget
-                        }
+                        {formatMoney(trip.budget, trip.currency || "INR")}
                       </span>
 
                       <span>
@@ -3551,6 +3820,17 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
                           trip.interests
                         }
                       </span>
+                    </div>
+
+                    <div className="saved-trip-actions">
+                      <button
+                        type="button"
+                        className="restore-trip-button"
+                        onClick={() => restoreTripToPlanner(trip)}
+                        title="Load this trip into the planner"
+                      >
+                        📂 Open in Planner
+                      </button>
                     </div>
 
                     {trip.itinerary && (
@@ -3568,6 +3848,9 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
 
                         <div className="saved-trip-content">
                           <FormattedItinerary
+                            displayMoney={(amount) =>
+                              formatMoney(parseMoneyAmount(amount), trip.currency || "INR")
+                            }
                             rawItinerary={
                               trip.itinerary
                             }
@@ -4027,5 +4310,4 @@ If Trip Style is "No Filter", do not apply any special travel-style constraints.
     </div>
   );
 }
-
 export default App;
