@@ -86,19 +86,40 @@ export const isDayHeading = (line) => {
   return text.match(/^(?:#{1,4}\s*)?Day\s+(\d+)\b[:\s\-–—]*(.*)$/i);
 };
 
-export const isTimeHeading = (line) => {
-  if (parseCostLine(line)) return null;
+export const isCostHeading = (line) => {
+  if (!line) return false;
+  const text = cleanHeading(line).toLowerCase().trim();
+  return /^(?:estimated\s*day\s*costs?|daily\s*costs?|day\s*costs?|estimated\s*daily\s*expenses|estimated\s*day\s*expenses|daily\s*expenses)$/i.test(text);
+};
 
-  const text = cleanHeading(line)
+export const isTimeHeading = (line) => {
+  if (!line) return null;
+  const trimmed = line.trim();
+
+  // Bullets and numbered list items are NEVER time headings
+  if (/^[-*•]\s+/.test(trimmed) || /^\d+[.)]\s+/.test(trimmed)) {
+    return null;
+  }
+
+  // Horizontal rules / dividers are NEVER time headings
+  if (/^[-*_]{3,}$/.test(trimmed)) {
+    return null;
+  }
+
+  // Cost headings or cost lines are NEVER time headings
+  if (isCostHeading(trimmed) || parseCostLine(trimmed)) {
+    return null;
+  }
+
+  const text = cleanHeading(trimmed)
     .replace(/^[^\w#*]+/, "")
     .replace(/^\*+|\*+$/g, "")
     .replace(/:$/, "")
     .trim();
 
-  const match = text.match(
-    /^(Morning|Afternoon|Evening|Night|Activities|Activity|Shopping|Getting Around)\b/i
+  return text.match(
+    /^(Morning|Afternoon|Evening|Night|Activities|Activity|Shopping|Getting Around)$/i
   );
-  return match;
 };
 
 export const isSummaryHeading = (line) => {
@@ -127,14 +148,46 @@ export const isTipsHeading = (line) => {
 };
 
 /**
+ * Detects if a text string represents a monetary cost, price, or fee rather than a place
+ */
+export const isMoneyOrCost = (str) => {
+  if (!str) return false;
+  const s = String(str).trim();
+  if (!s) return false;
+
+  // Currency symbols: $, €, £, ₹, ¥, ₩
+  if (/^[₹$€£¥₩]/.test(s)) return true;
+
+  // Currency codes
+  if (/\b(?:usd|inr|eur|gbp|jpy|aud|cad|chf|cny|sgd|hkd|nzd|krw)\b/i.test(s)) return true;
+
+  // Cost/price labels and prefixes
+  if (/^(?:cost|approx\.?\s*cost|price|fee|admission|ticket|subtotal|total|budget)\b/i.test(s)) return true;
+  if (/\b(?:per\s*person|per\s*day|per\s*ticket|entry\s*fee|admission\s*fee|ticket\s*price)\b/i.test(s)) return true;
+  if (/^(?:free|free\s*admission|free\s*entry|no\s*cost)$/i.test(s)) return true;
+
+  // Numbers only, with commas, decimals, or 'k'/'m' suffixes (e.g. 25, 1,500, 50k, 25.00)
+  if (/^[-+]?[\d,]+(?:\.\d+)?\s*[kKmM]?$/.test(s)) return true;
+
+  // Price ranges like 10 - 20 or $10 - $25
+  if (/^[-+]?[\d,]+(?:\.\d+)?\s*[-–—]\s*[-+]?[\d,]+(?:\.\d+)?$/i.test(s)) return true;
+
+  return false;
+};
+
+/**
  * Place extraction helper
  */
 export const inferPlaceFromActivity = (activity) => {
-  const text = cleanText(activity);
+  let text = cleanText(activity);
   if (!text) return "";
+
+  // Strip leading time prefixes or activity markers
+  text = text.replace(/^(?:morning|afternoon|evening|night|activity)\s*:?\s*/i, "").trim();
 
   const patterns = [
     /^(?:visit|visiting|explore|exploring|see|seeing|tour|touring|discover|discovering|experience|experiencing|head to|go to|travel to|stop at|stop by)\s+(.+)$/i,
+    /^(?:walk\s+(?:through|around|along)|stroll\s+(?:through|around|along)|wander\s+(?:through|around|in)|hike\s+(?:up|to|around)?|climb|check\s+out|spend\s+(?:time\s+)?at|day\s+trip\s+to|take\s+(?:a\s+)?(?:ferry|boat|cruise|cable\s*car|tram)\s+(?:to|along|at)?)\s+(.+)$/i,
     /^(?:breakfast|lunch|dinner|meal|coffee|tea|snacks?)\s+(?:at|in|near)\s+(.+)$/i,
     /^(?:have|enjoy|grab|get)\s+(?:breakfast|lunch|dinner|coffee|tea|snacks?)\s+(?:at|in|near)\s+(.+)$/i,
     /^(?:shop|shopping)\s+(?:at|in|near)\s+(.+)$/i,
@@ -145,12 +198,28 @@ export const inferPlaceFromActivity = (activity) => {
   for (const pattern of patterns) {
     const match = text.match(pattern);
     if (match && match[1]) {
-      return cleanText(
+      let candidate = cleanText(
         match[1].replace(
           /\s+(?:for|during|in the|at the)\s+(?:morning|afternoon|evening|night).*$/i,
           ""
         )
       );
+      candidate = candidate.split(/\s+[—–-]\s+/)[0];
+      candidate = candidate.replace(/\s+(?:and\s+(?:have|enjoy|eat|grab|shop|relax|dine)).*$/i, "");
+      candidate = candidate.replace(/[,;.]\s*$/, "").trim();
+      if (candidate && !isMoneyOrCost(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  // Landmark noun detection heuristic (e.g., "Louvre Museum", "Eiffel Tower", "Senso-ji Temple")
+  if (
+    /\b(?:museum|tower|temple|fort|palace|park|shrine|market|bridge|garden|gardens|square|cathedral|castle|beach|falls|monument|statue|sanctuary|lake|island|aquarium|zoo|gallery|bazaar)\b/i.test(text)
+  ) {
+    const landmark = text.split(/\s+[—–-]\s+/)[0].replace(/[,;.]\s*$/, "").trim();
+    if (landmark && landmark.split(/\s+/).length <= 6 && !isMoneyOrCost(landmark)) {
+      return landmark;
     }
   }
 
@@ -196,11 +265,19 @@ export const getOrCreateSection = (day, title) => {
 export const addPlaceToDay = (day, place) => {
   if (!place || !day) return;
   const name = cleanText(place);
+  if (!name || name.length <= 1) return;
+
+  // Never add money, prices, or generic non-place labels
+  if (isMoneyOrCost(name)) return;
   if (
-    name &&
-    name.length > 1 &&
-    !day.places.some((p) => p.toLowerCase() === name.toLowerCase())
+    /^(?:hotel|accommodation|lodging|airport|flight|breakfast|lunch|dinner|meal|meals|free\s*time|leisure|rest|transit|day\s*\d+|morning|afternoon|evening|night|activities|subtotal|total)$/i.test(
+      name
+    )
   ) {
+    return;
+  }
+
+  if (!day.places.some((p) => p.toLowerCase() === name.toLowerCase())) {
     day.places.push(name);
   }
 };
@@ -209,8 +286,17 @@ export const addPlaceToDay = (day, place) => {
  * Split activity line into activity, place, notes, cost
  */
 export const splitActivityLine = (rawLine) => {
+  const emptyResult = { activity: "", place: "", notes: "", cost: "" };
+  if (!rawLine) return emptyResult;
+
   let text = cleanText(rawLine);
-  if (!text) return { activity: "", place: "", notes: "", cost: "" };
+  text = removeListMarker(text);
+  text = text.replace(/^\*{1,2}|\*{1,2}$/g, "").trim();
+
+  // Strip explicit Activity: prefix
+  text = text
+    .replace(/^(?:activity|activities)\s*:\s*/i, "")
+    .replace(/\s+place\s*:\s*/i, " — ");
 
   let place = "";
   let cost = "";
@@ -219,28 +305,51 @@ export const splitActivityLine = (rawLine) => {
   // Check explicit place marker: "Place: Eiffel Tower"
   const placeMatch = text.match(/\bplace\s*:\s*(.+)$/i);
   if (placeMatch) {
-    place = cleanText(placeMatch[1]);
-    text = text.slice(0, placeMatch.index).trim();
+    const candidate = cleanText(placeMatch[1]);
+    if (!isMoneyOrCost(candidate)) {
+      place = candidate;
+    }
+    text = text.slice(0, placeMatch.index).trim().replace(/[—–-]\s*$/, "").trim();
   }
 
-  // Check explicit activity marker: "Activity: Tour Louvre"
-  const actMatch = text.match(/^activity\s*:\s*(.+)$/i);
-  if (actMatch) {
-    text = cleanText(actMatch[1]);
-  }
-
-  // Check dash separated: "Tour Museum — Louvre"
+  // Check dash separated: "Tour Museum — Louvre" or "Visit Eiffel Tower — $30"
   const parts = text.split(/\s+[—–-]\s+/).map(cleanText).filter(Boolean);
   let activity = "";
+
   if (parts.length >= 2) {
     activity = parts[0];
-    if (!place) place = parts[1];
-    if (parts.length > 2) {
-      notes = parts.slice(2).join(" — ");
+    for (let i = 1; i < parts.length; i++) {
+      const part = parts[i];
+      if (isMoneyOrCost(part)) {
+        if (!cost) cost = part;
+      } else if (!place) {
+        place = part;
+      } else if (!notes) {
+        notes = part;
+      } else {
+        notes += " — " + part;
+      }
     }
   } else {
     activity = parts[0] || text;
-    if (!place) place = inferPlaceFromActivity(activity);
+  }
+
+  // If place was not provided or was accidentally money, infer from activity
+  if (!place || isMoneyOrCost(place)) {
+    place = inferPlaceFromActivity(activity);
+  }
+  if (isMoneyOrCost(place)) {
+    place = "";
+  }
+
+  const normalized = activity.toLowerCase();
+  if (
+    !normalized ||
+    /^(activity|activities|place|notes?|cost|approx\.?\s*cost)$/.test(normalized) ||
+    /^[-*_]{2,}$/.test(normalized) ||
+    /^(?:estimated\s*day\s*cost|daily\s*expenses)$/i.test(normalized)
+  ) {
+    return emptyResult;
   }
 
   return { activity, place, notes, cost };
@@ -284,7 +393,7 @@ export const parseItinerary = (
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (!line) continue;
+    if (!line || /^[-*_]{3,}$/.test(line.trim())) continue;
 
     // 1. Day Heading Check
     const dayMatch = isDayHeading(line);
@@ -310,7 +419,13 @@ export const parseItinerary = (
       continue;
     }
 
-    // 4. Time Section Check
+    // 4. Cost Heading Check e.g. **Estimated Day Cost**
+    if (isCostHeading(line)) {
+      currentSection = null;
+      continue;
+    }
+
+    // 5. Time Section Check
     const timeMatch = isTimeHeading(line);
     if (timeMatch && currentDay) {
       const sectionName = cleanHeading(timeMatch[1]);
@@ -321,7 +436,7 @@ export const parseItinerary = (
 
     const plainLine = cleanText(line);
 
-    // 5. Metadata Check (only before days start)
+    // 6. Metadata Check (only before days start)
     if (!currentDay) {
       const metadataMatch = plainLine.match(
         /^(?:[-•*]\s*)?(Budget|Interests|Currency|Transport)\s*:?\s*(.+)$/i
@@ -333,7 +448,7 @@ export const parseItinerary = (
       }
     }
 
-    // 6. Day Content Parsing
+    // 7. Day Content Parsing
     if (currentDay && mode === "day") {
       // Check if this line is an itemized cost line
       const costItem = parseCostLine(plainLine);
@@ -347,14 +462,21 @@ export const parseItinerary = (
         continue;
       }
 
-      // Explicit Places line
-      if (/^places?\s*:/i.test(plainLine)) {
-        const places = plainLine
+      // Explicit Places line: "- Place: Eiffel Tower" or "Places: Louvre, Tuileries"
+      const strippedPlace = removeListMarker(plainLine);
+      if (/^places?\s*:/i.test(strippedPlace)) {
+        const places = strippedPlace
           .replace(/^places?\s*:/i, "")
           .split(/[,•]/)
           .map(cleanText)
-          .filter(Boolean);
+          .filter((p) => p && !isMoneyOrCost(p));
         places.forEach((p) => addPlaceToDay(currentDay, p));
+
+        // If an explicit Place line follows an activity item, attach the explicit place
+        if (currentSection && currentSection.items.length > 0 && places.length > 0) {
+          const lastItem = currentSection.items[currentSection.items.length - 1];
+          lastItem.place = places[0];
+        }
         continue;
       }
 
@@ -385,7 +507,8 @@ export const parseItinerary = (
       // Non-bullet Activity fallback
       if (
         plainLine &&
-        !/^(?:activity|activities|notes?|cost|place|places|food|transport|morning|afternoon|evening|getting around)\s*:?$/i.test(plainLine)
+        !/^[-*_]{2,}$/.test(plainLine) &&
+        !/^(?:activity|activities|notes?|cost|place|places|food|transport|morning|afternoon|evening|night|getting around|estimated\s*day\s*cost)\s*:?$/i.test(plainLine)
       ) {
         const activity = splitActivityLine(plainLine);
         if (activity.activity) {

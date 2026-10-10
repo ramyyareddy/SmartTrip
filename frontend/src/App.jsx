@@ -134,15 +134,39 @@ const isDayHeading = (line) => {
   return text.match(/^(?:#{1,4}\s*)?Day\s+(\d+)\b[:\s\-–—]*(.*)$/i);
 };
 
+const isCostHeading = (line) => {
+  if (!line) return false;
+  const text = cleanHeading(line).toLowerCase().trim();
+  return /^(?:estimated\s*day\s*costs?|daily\s*costs?|day\s*costs?|estimated\s*daily\s*expenses|estimated\s*day\s*expenses|daily\s*expenses)$/i.test(text);
+};
+
 const isTimeHeading = (line) => {
-  const text = cleanHeading(line)
+  if (!line) return null;
+  const trimmed = String(line).trim();
+
+  // Bullets and numbered list items are NEVER time headings
+  if (/^[-*•]\s+/.test(trimmed) || /^\d+[.)]\s+/.test(trimmed)) {
+    return null;
+  }
+
+  // Dividers are NEVER time headings
+  if (/^[-*_]{3,}$/.test(trimmed)) {
+    return null;
+  }
+
+  // Cost headings or cost lines with colons are NEVER time headings
+  if (isCostHeading(trimmed) || /^(?:accommodation|food|transport|activities|day subtotal|subtotal|total)\s*:/i.test(trimmed)) {
+    return null;
+  }
+
+  const text = cleanHeading(trimmed)
     .replace(/^[^\w#*]+/, "")
     .replace(/^\*+|\*+$/g, "")
     .replace(/:$/, "")
     .trim();
 
   return text.match(
-    /^(Morning|Afternoon|Evening|Night|Activities|Activity|Shopping|Getting Around)\b/i
+    /^(Morning|Afternoon|Evening|Night|Activities|Activity|Shopping|Getting Around)$/i
   );
 };
 
@@ -211,48 +235,81 @@ const extractCost = (text) => {
    PLACE HELPERS
 ========================================================= */
 
+/**
+ * Detects if a text string represents a monetary cost, price, or fee rather than a place
+ */
+const isMoneyOrCost = (str) => {
+  if (!str) return false;
+  const s = String(str).trim();
+  if (!s) return false;
+
+  // Currency symbols: $, €, £, ₹, ¥, ₩
+  if (/^[₹$€£¥₩]/.test(s)) return true;
+
+  // Currency codes
+  if (/\b(?:usd|inr|eur|gbp|jpy|aud|cad|chf|cny|sgd|hkd|nzd|krw)\b/i.test(s)) return true;
+
+  // Cost/price labels and prefixes
+  if (/^(?:cost|approx\.?\s*cost|price|fee|admission|ticket|subtotal|total|budget)\b/i.test(s)) return true;
+  if (/\b(?:per\s*person|per\s*day|per\s*ticket|entry\s*fee|admission\s*fee|ticket\s*price)\b/i.test(s)) return true;
+  if (/^(?:free|free\s*admission|free\s*entry|no\s*cost)$/i.test(s)) return true;
+
+  // Numbers only, with commas, decimals, or 'k'/'m' suffixes (e.g. 25, 1,500, 50k, 25.00)
+  if (/^[-+]?[\d,]+(?:\.\d+)?\s*[kKmM]?$/.test(s)) return true;
+
+  // Price ranges like 10 - 20 or $10 - $25
+  if (/^[-+]?[\d,]+(?:\.\d+)?\s*[-–—]\s*[-+]?[\d,]+(?:\.\d+)?$/i.test(s)) return true;
+
+  return false;
+};
+
 /*
- * If the AI gives:
- *
- * Visit Charminar
- * Explore Golconda Fort
- * Lunch at Paradise
- *
- * but does not use "Activity — Place", this helper
- * tries to extract the actual place name.
+ * Extracts the actual place name from an activity string
  */
 const inferPlaceFromActivity = (activity) => {
-  const text = cleanText(activity);
-
+  let text = cleanText(activity);
   if (!text) {
     return "";
   }
 
+  // Strip leading time prefixes or activity markers
+  text = text.replace(/^(?:morning|afternoon|evening|night|activity)\s*:?\s*/i, "").trim();
+
   const patterns = [
     /^(?:visit|visiting|explore|exploring|see|seeing|tour|touring|discover|discovering|experience|experiencing|head to|go to|travel to|stop at|stop by)\s+(.+)$/i,
-
+    /^(?:walk\s+(?:through|around|along)|stroll\s+(?:through|around|along)|wander\s+(?:through|around|in)|hike\s+(?:up|to|around)?|climb|check\s+out|spend\s+(?:time\s+)?at|day\s+trip\s+to|take\s+(?:a\s+)?(?:ferry|boat|cruise|cable\s*car|tram)\s+(?:to|along|at)?)\s+(.+)$/i,
     /^(?:breakfast|lunch|dinner|meal|coffee|tea|snacks?)\s+(?:at|in|near)\s+(.+)$/i,
-
     /^(?:have|enjoy|grab|get)\s+(?:breakfast|lunch|dinner|coffee|tea|snacks?)\s+(?:at|in|near)\s+(.+)$/i,
-
     /^(?:shop|shopping)\s+(?:at|in|near)\s+(.+)$/i,
-
     /^(?:relax|relaxing)\s+(?:at|in|near)\s+(.+)$/i,
-
     /^(?:photograph|photography|photos?|sunset)\s+(?:at|in|near)\s+(.+)$/i,
   ];
 
   for (const pattern of patterns) {
     const match = text.match(pattern);
-
     if (match && match[1]) {
-      return cleanText(
-        match[1]
-          .replace(
-            /\s+(?:for|during|in the|at the)\s+(?:morning|afternoon|evening|night).*$/i,
-            ""
-          )
+      let candidate = cleanText(
+        match[1].replace(
+          /\s+(?:for|during|in the|at the)\s+(?:morning|afternoon|evening|night).*$/i,
+          ""
+        )
       );
+      candidate = candidate.split(/\s+[—–-]\s+/)[0];
+      candidate = candidate.replace(/\s+(?:and\s+(?:have|enjoy|eat|grab|shop|relax|dine)).*$/i, "");
+      candidate = candidate.replace(/[,;.]\s*$/, "").trim();
+      if (candidate && !isMoneyOrCost(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  // Landmark noun detection heuristic (e.g., "Louvre Museum", "Eiffel Tower", "Senso-ji Temple")
+  if (
+    /\b(?:museum|tower|temple|fort|palace|park|shrine|market|bridge|garden|gardens|square|cathedral|castle|beach|falls|monument|statue|sanctuary|lake|island|aquarium|zoo|gallery|bazaar)\b/i.test(text)
+  ) {
+    const landmark = text.split(/\s+[—–-]\s+/)[0].replace(/[,;.]\s*$/, "").trim();
+    if (landmark && landmark.split(/\s+/).length <= 6 && !isMoneyOrCost(landmark)) {
+      return landmark;
     }
   }
 
@@ -262,7 +319,19 @@ const inferPlaceFromActivity = (activity) => {
 const addPlaceToDay = (day, place) => {
   const cleanPlace = cleanText(place);
 
-  if (!day || !cleanPlace) {
+  if (!day || !cleanPlace || cleanPlace.length <= 1) {
+    return;
+  }
+
+  // Never add money, prices, or generic non-place labels
+  if (isMoneyOrCost(cleanPlace)) {
+    return;
+  }
+  if (
+    /^(?:hotel|accommodation|lodging|airport|flight|breakfast|lunch|dinner|meal|meals|free\s*time|leisure|rest|transit|day\s*\d+|morning|afternoon|evening|night|activities|subtotal|total)$/i.test(
+      cleanPlace
+    )
+  ) {
     return;
   }
 
@@ -282,8 +351,6 @@ const addPlaceToDay = (day, place) => {
 ========================================================= */
 
 const splitActivityLine = (rawText) => {
-  let text = cleanText(removeListMarker(rawText));
-
   const emptyResult = {
     activity: "",
     place: "",
@@ -291,26 +358,39 @@ const splitActivityLine = (rawText) => {
     cost: "",
   };
 
-  if (!text) return emptyResult;
+  if (!rawText) return emptyResult;
+
+  let text = cleanText(rawText);
+  text = removeListMarker(text);
 
   // Remove Markdown bold/italic markers for parsing.
+  text = text.replace(/^\*{1,2}|\*{1,2}$/g, "").trim();
 
-text = text.replace(/^\*{1,2}|\*{1,2}$/g, "").trim();
+  let activity = "";
+  let place = "";
+  let notes = "";
+  let cost = "";
 
-let activity;
-let place;
-let notes = "";
-let cost = "";
+  // Handle labeled AI output, e.g. Activity: Visit temple, Place: Louvre
+  text = text
+    .replace(/^(?:ACTIVITY|ACTIVITIES)\s*:\s*/i, "")
+    .replace(/\s+PLACE\s*:\s*/i, " — ");
 
-// Handle labeled AI output, including compact forms such as ACTIVITYVisit temple.
-text = text
-  .replace(/^(?:ACTIVITY|ACTIVITIES)\s*[•:—-]?\s*/i, "")
-  .replace(/\s+PLACE\s*:?\s*/i, " — ");
+  // Check explicit place marker: "Place: Eiffel Tower"
+  const explicitPlaceMatch = text.match(/\bplace\s*:\s*(.+)$/i);
+  if (explicitPlaceMatch) {
+    const candidate = cleanText(explicitPlaceMatch[1]);
+    if (!isMoneyOrCost(candidate)) {
+      place = candidate;
+    }
+    text = text.slice(0, explicitPlaceMatch.index).trim();
+    text = text.replace(/[—–-]\s*$/, "").trim();
+  }
 
-// Extract an inline cost, e.g. "Approx. Cost: $25".
-const costMatch = text.match(
-  /(?:[—–-]\s*)?Approx\.?\s*Cost(?:\s*\([^)]*\))?\s*:?\s*(.+)$/i
-);
+  // Extract an inline cost, e.g. "Approx. Cost: $25".
+  const costMatch = text.match(
+    /(?:[—–-]\s*)?Approx\.?\s*Cost(?:\s*\([^)]*\))?\s*:?\s*(.+)$/i
+  );
 
   if (costMatch) {
     const costText = cleanText(costMatch[1]);
@@ -351,7 +431,7 @@ const costMatch = text.match(
     text = text.replace(/[|•—–-]\s*$/, "").trim();
   }
 
-  // Split activity and place when separated by a dash.
+  // Split activity and place when separated by a dash: "Tour Museum — Louvre" or "Visit Eiffel Tower — $30"
   const parts = text
     .split(/\s+[—–-]\s+/)
     .map((part) => cleanText(part))
@@ -359,27 +439,41 @@ const costMatch = text.match(
 
   if (parts.length >= 2) {
     activity = parts[0];
-    place = parts[1];
-
-    if (parts.length > 2) {
-      notes = [parts.slice(2).join(" — "), notes]
-        .filter(Boolean)
-        .join(" ");
+    for (let i = 1; i < parts.length; i++) {
+      const part = parts[i];
+      if (isMoneyOrCost(part)) {
+        if (!cost) cost = part;
+      } else if (!place) {
+        place = part;
+      } else if (!notes) {
+        notes = part;
+      } else {
+        notes += " — " + part;
+      }
     }
   } else {
     activity = parts[0] || text;
-    place = inferPlaceFromActivity(activity);
   }
 
   if (!cost && notes) {
     cost = extractCost(notes) || "";
   }
 
+  // If place was not provided or was accidentally money, infer from activity
+  if (!place || isMoneyOrCost(place)) {
+    place = inferPlaceFromActivity(activity);
+  }
+  if (isMoneyOrCost(place)) {
+    place = "";
+  }
+
   const normalized = activity.toLowerCase();
 
   if (
     !normalized ||
-    /^(activity|activities|place|notes?|cost|approx\.?\s*cost)$/.test(normalized)
+    /^(activity|activities|place|notes?|cost|approx\.?\s*cost)$/.test(normalized) ||
+    /^[-*_]{2,}$/.test(normalized) ||
+    /^(?:estimated\s*day\s*cost|daily\s*expenses)$/i.test(normalized)
   ) {
     return emptyResult;
   }
@@ -750,7 +844,7 @@ const parseItinerary = (
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    if (!line) continue;
+    if (!line || /^[-*_]{3,}$/.test(line.trim())) continue;
 
     const dayMatch = isDayHeading(line);
 
@@ -770,6 +864,11 @@ const parseItinerary = (
 
     if (isSummaryHeading(line)) {
       mode = "summary";
+      currentSection = null;
+      continue;
+    }
+
+    if (isCostHeading(line)) {
       currentSection = null;
       continue;
     }
@@ -983,13 +1082,14 @@ const parseItinerary = (
          EXPLICIT PLACES
       =================================================== */
 
+      const strippedPlace = removeListMarker(plainLine);
       if (
         /^places?\s*:/i.test(
-          plainLine
+          strippedPlace
         )
       ) {
         const places =
-          plainLine
+          strippedPlace
             .replace(
               /^places?\s*:/i,
               ""
@@ -998,7 +1098,7 @@ const parseItinerary = (
             .map((item) =>
               cleanText(item)
             )
-            .filter(Boolean);
+            .filter((p) => p && !isMoneyOrCost(p));
 
         places.forEach(
           (place) =>
@@ -1008,6 +1108,12 @@ const parseItinerary = (
             )
         );
 
+        // Attach this place to the preceding activity in the current section
+        if (currentSection && currentSection.items.length > 0 && places.length > 0) {
+          const lastItem = currentSection.items[currentSection.items.length - 1];
+          lastItem.place = places[0];
+        }
+
         continue;
       }
 
@@ -1015,13 +1121,14 @@ const parseItinerary = (
          FOOD
       =================================================== */
 
+      const strippedFood = removeListMarker(plainLine);
       if (
         /^food\s*:/i.test(
-          plainLine
+          strippedFood
         )
       ) {
         const foods =
-          plainLine
+          strippedFood
             .replace(
               /^food\s*:/i,
               ""
@@ -1047,9 +1154,10 @@ const parseItinerary = (
         /^[-*•]\s+/.test(line);
 
       if (isBullet) {
+        const stripped = removeListMarker(line);
         const activity =
           splitActivityLine(
-            line
+            stripped
           );
 
         if (
@@ -1137,7 +1245,8 @@ if (standaloneCost) {
       // Last-resort activity parsing: some model responses omit bullets and dashes.
       if (
         plainLine &&
-        !/^(?:activity|activities|notes?|cost|place|places|food|transport|morning|afternoon|evening)\s*:?$/i.test(plainLine)
+        !/^[-*_]{2,}$/.test(plainLine) &&
+        !/^(?:activity|activities|notes?|cost|place|places|food|transport|morning|afternoon|evening|night|getting around|estimated\s*day\s*cost)\s*:?$/i.test(plainLine)
       ) {
         const activity = splitActivityLine(plainLine);
         if (activity.activity) {
@@ -2678,10 +2787,14 @@ const data = await response.text();
           authMode ===
           "signup"
         ) {
+          const trimmedName = (authName || "").trim();
+          const trimmedEmail = (authEmail || "").trim().toLowerCase();
+          const trimmedPassword = (authPassword || "").trim();
+
           if (
-            !authName ||
-            !authEmail ||
-            !authPassword
+            !trimmedName ||
+            !trimmedEmail ||
+            !trimmedPassword
           ) {
             throw new Error(
               "Please fill in all the fields."
@@ -2702,22 +2815,29 @@ const data = await response.text();
 
                 body: JSON.stringify(
                   {
-                    name: authName,
-                    email:
-                      authEmail,
-                    password:
-                      authPassword,
+                    name: trimmedName,
+                    email: trimmedEmail,
+                    password: trimmedPassword,
                   }
                 ),
               }
             );
 
-          const data =
+          const responseText =
             await response.text();
+
+          let data = null;
+          try {
+            data = JSON.parse(responseText);
+          } catch {
+            data = null;
+          }
 
           if (!response.ok) {
             throw new Error(
-              data ||
+              data?.message ||
+                data?.error ||
+                responseText ||
                 "Unable to create your account."
             );
           }
@@ -2747,9 +2867,12 @@ const data = await response.text();
           authMode ===
           "login"
         ) {
+          const trimmedEmail = (authEmail || "").trim().toLowerCase();
+          const trimmedPassword = (authPassword || "").trim();
+
           if (
-            !authEmail ||
-            !authPassword
+            !trimmedEmail ||
+            !trimmedPassword
           ) {
             throw new Error(
               "Please enter your email and password."
@@ -2770,10 +2893,8 @@ const data = await response.text();
 
                 body: JSON.stringify(
                   {
-                    email:
-                      authEmail,
-                    password:
-                      authPassword,
+                    email: trimmedEmail,
+                    password: trimmedPassword,
                   }
                 ),
               }

@@ -17,26 +17,44 @@ public class UserService {
     }
 
     public User registerUser(User user) {
-
-        if (userRepository.findByEmail(user.getEmail()) != null) {
-            throw new RuntimeException("Email already registered");
+        if (user == null || user.getEmail() == null || user.getEmail().trim().isEmpty()) {
+            throw new IllegalArgumentException("Email is required");
+        }
+        if (user.getPassword() == null || user.getPassword().trim().isEmpty()) {
+            throw new IllegalArgumentException("Password is required");
         }
 
+        String normalizedEmail = user.getEmail().trim().toLowerCase();
+        if (userRepository.findByEmail(normalizedEmail) != null) {
+            throw new IllegalArgumentException("Email already registered");
+        }
+
+        user.setEmail(normalizedEmail);
+        if (user.getName() != null) {
+            user.setName(user.getName().trim());
+        }
         user.setPassword(passwordEncoder.encode(user.getPassword()));
 
         return userRepository.save(user);
     }
 
     public User loginUser(String email, String password) {
+        if (email == null || email.trim().isEmpty()) {
+            throw new IllegalArgumentException("Email is required");
+        }
+        if (password == null || password.trim().isEmpty()) {
+            throw new IllegalArgumentException("Password is required");
+        }
 
-        User user = userRepository.findByEmail(email);
+        String normalizedEmail = email.trim().toLowerCase();
+        User user = userRepository.findByEmail(normalizedEmail);
 
         if (user == null) {
-            throw new RuntimeException("User not found");
+            throw new IllegalArgumentException("Invalid email or password");
         }
 
         if (!passwordEncoder.matches(password, user.getPassword())) {
-            throw new RuntimeException("Invalid password");
+            throw new IllegalArgumentException("Invalid email or password");
         }
 
         return user;

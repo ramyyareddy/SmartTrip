@@ -14,7 +14,7 @@ public class JwtService {
     private final String SECRET_KEY =
             "SmartTripSecretKeyForJWTAuthentication2026Secure";
 
-    private final long EXPIRATION_TIME = 1000 * 60 * 60;
+    private final long EXPIRATION_TIME = 1000L * 60 * 60 * 24 * 7; // 7 days
 
     private SecretKey getKey() {
         return Keys.hmacShaKeyFor(

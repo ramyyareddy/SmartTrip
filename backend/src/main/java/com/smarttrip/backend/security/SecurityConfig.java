@@ -69,7 +69,7 @@ public class SecurityConfig {
 
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // Allow the deployed SmartTrip frontend
+        // Allow the deployed SmartTrip frontend and any frontend client
         configuration.setAllowedOrigins(
             List.of(
                 "https://smarttrip-app.up.railway.app",
@@ -80,6 +80,7 @@ public class SecurityConfig {
                 "http://127.0.0.1:3000"
             )
         );
+        configuration.setAllowedOriginPatterns(List.of("*"));
 
         configuration.setAllowedMethods(
             List.of(

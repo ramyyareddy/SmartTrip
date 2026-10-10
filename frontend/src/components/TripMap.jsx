@@ -223,6 +223,31 @@ const createCurvedJourneyLine = (
   return points;
 };
 
+const isMoneyOrCost = (str) => {
+  if (!str) return false;
+  const s = String(str).trim();
+  if (!s) return false;
+
+  // Currency symbols: $, €, £, ₹, ¥, ₩
+  if (/^[₹$€£¥₩]/.test(s)) return true;
+
+  // Currency codes
+  if (/\b(?:usd|inr|eur|gbp|jpy|aud|cad|chf|cny|sgd|hkd|nzd|krw)\b/i.test(s)) return true;
+
+  // Cost/price labels and prefixes
+  if (/^(?:cost|approx\.?\s*cost|price|fee|admission|ticket|subtotal|total|budget)\b/i.test(s)) return true;
+  if (/\b(?:per\s*person|per\s*day|per\s*ticket|entry\s*fee|admission\s*fee|ticket\s*price)\b/i.test(s)) return true;
+  if (/^(?:free|free\s*admission|free\s*entry|no\s*cost)$/i.test(s)) return true;
+
+  // Numbers only, with commas, decimals, or 'k'/'m' suffixes (e.g. 25, 1,500, 50k, 25.00)
+  if (/^[-+]?[\d,]+(?:\.\d+)?\s*[kKmM]?$/.test(s)) return true;
+
+  // Price ranges like 10 - 20 or $10 - $25
+  if (/^[-+]?[\d,]+(?:\.\d+)?\s*[-–—]\s*[-+]?[\d,]+(?:\.\d+)?$/i.test(s)) return true;
+
+  return false;
+};
+
 const cleanMapPlace = (place) => {
   let text = String(place || "")
     .replace(/\([^)]*\)/g, " ")
@@ -232,15 +257,20 @@ const cleanMapPlace = (place) => {
   text = text.split(/\s+[–—]\s+|\s+-\s+/)[0];
   text = text.split(/\.\s+/)[0];
 
-  return text.replace(/^["“”']+|["“”']+$/g, "").trim();
+  const cleaned = text.replace(/^["“”']+|["“”']+$/g, "").trim();
+  if (isMoneyOrCost(cleaned)) return "";
+  return cleaned;
 };
 
 const isExcludedPlace = (place) => {
+  if (!place) return true;
   const cleaned = place
     .replace(/[.!,:;]+$/g, "")
     .trim();
 
-  return /^(hotel|accommodation|lodging|free time|leisure time)$/i.test(
+  if (isMoneyOrCost(cleaned)) return true;
+
+  return /^(hotel|accommodation|lodging|free time|leisure time|morning|afternoon|evening|night|day\s*\d+|activities?|getting around)$/i.test(
     cleaned
   );
 };
@@ -344,12 +374,10 @@ const geocodePlaceNearDestination = async (
   // Prefer a matching country when available; otherwise require
   // the candidate to be reasonably close to the destination.
   return (
-    ranked.find(
-      (item) =>
-        item.countryMatches ||
-        item.distance <= 150
-    ) || null
-  );
+  ranked.find(
+    (item) => item.distance <= 150
+  ) || null
+);
 };
 
 const getRoute = async (positions) => {
@@ -416,9 +444,7 @@ const TripMap = ({
     [placesByDay]
   );
 
-  const hasDayGroups = normalizedDays.some(
-    (day) => day.places.length > 0
-  );
+  const hasDayGroups = normalizedDays.length > 0;
 
   // Use the day-grouped data when available. The flat places prop
   // remains as a fallback for older TripMap callers.
@@ -440,10 +466,7 @@ const TripMap = ({
   ]);
 
   const dayOptions = useMemo(
-    () =>
-      normalizedDays.filter(
-        (day) => day.places.length > 0
-      ),
+    () => normalizedDays,
     [normalizedDays]
   );
 
@@ -583,9 +606,7 @@ const TripMap = ({
 
         // 3. Locate only the currently selected set of places.
         // Full Trip uses the original flat places list.
-        const uniquePlaces = normalizePlaceList(
-          activePlaces
-        ).slice(0, 8);
+        const uniquePlaces = normalizePlaceList(activePlaces);
 
         const locatedPlaces = [];
 
@@ -741,7 +762,9 @@ const TripMap = ({
         <p className="trip-map-day-description">
           {selectedDay === "all"
             ? "Showing the overall journey and trip locations."
-            : `Showing locations for Day ${selectedDay}.`}
+            : activePlaces.length > 0
+            ? `Showing locations for Day ${selectedDay}.`
+            : `Showing destination area for Day ${selectedDay}.`}
         </p>
       )}
 

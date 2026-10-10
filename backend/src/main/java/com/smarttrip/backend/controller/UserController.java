@@ -4,6 +4,8 @@ import com.smarttrip.backend.dto.UserResponse;
 import com.smarttrip.backend.model.User;
 import com.smarttrip.backend.security.JwtService;
 import com.smarttrip.backend.service.UserService;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -23,32 +25,54 @@ public class UserController {
     }
 
     @PostMapping("/register")
-    public UserResponse register(@RequestBody User user) {
+    public ResponseEntity<?> register(@RequestBody User user) {
+        try {
+            User registeredUser = userService.registerUser(user);
 
-        User registeredUser = userService.registerUser(user);
-
-        return new UserResponse(
-                registeredUser.getId(),
-                registeredUser.getName(),
-                registeredUser.getEmail()
-        );
+            return ResponseEntity.ok(new UserResponse(
+                    registeredUser.getId(),
+                    registeredUser.getName(),
+                    registeredUser.getEmail()
+            ));
+        } catch (IllegalArgumentException ex) {
+            Map<String, String> error = new HashMap<>();
+            error.put("message", ex.getMessage());
+            error.put("error", ex.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        } catch (Exception ex) {
+            Map<String, String> error = new HashMap<>();
+            error.put("message", "Registration failed: " + ex.getMessage());
+            error.put("error", ex.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+        }
     }
 
     @PostMapping("/login")
-    public Map<String, Object> login(@RequestBody User user) {
+    public ResponseEntity<?> login(@RequestBody User user) {
+        try {
+            User loggedInUser = userService.loginUser(
+                    user != null ? user.getEmail() : null,
+                    user != null ? user.getPassword() : null
+            );
 
-        User loggedInUser = userService.loginUser(
-                user.getEmail(),
-                user.getPassword()
-        );
+            Map<String, Object> response = new HashMap<>();
 
-        Map<String, Object> response = new HashMap<>();
+            response.put("token", jwtService.generateToken(loggedInUser.getEmail()));
+            response.put("id", loggedInUser.getId());
+            response.put("name", loggedInUser.getName());
+            response.put("email", loggedInUser.getEmail());
 
-        response.put("token", jwtService.generateToken(loggedInUser.getEmail()));
-        response.put("id", loggedInUser.getId());
-        response.put("name", loggedInUser.getName());
-        response.put("email", loggedInUser.getEmail());
-
-        return response;
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException ex) {
+            Map<String, String> error = new HashMap<>();
+            error.put("message", ex.getMessage());
+            error.put("error", ex.getMessage());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
+        } catch (Exception ex) {
+            Map<String, String> error = new HashMap<>();
+            error.put("message", "Login failed: " + ex.getMessage());
+            error.put("error", ex.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+        }
     }
 }

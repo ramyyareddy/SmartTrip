@@ -140,8 +140,124 @@ const expectedSumDays = parsed.days.reduce((acc, d) => acc + (d.dayTotal || 0), 
 assert.strictEqual(parsed.calculatedTotalCost, expectedSumDays);
 console.log(`✓ Test 4 Passed: 7 days parsed accurately. Daily totals sum to ${parsed.calculatedTotalCost}, perfectly reconciling.`);
 
-// Test 5: Reconciled final total vs AI total
 assert.strictEqual(parsed.reconciledTotal, parsed.calculatedTotalCost);
 console.log("✓ Test 5 Passed: Reconciled total successfully prevents double counting and discrepancies.");
 
+// Test 6: Verify place extraction and money filtering
+const sampleExplicitMarkdown = `
+# Trip to Paris
+
+### Day 1: Arrival & Louvre
+- Morning: Explore the historic center
+- Place: Louvre Museum
+- Approx. Cost: €20
+- Afternoon: Stroll through Tuileries Garden — €0
+- Evening: Dinner near Seine River — €35
+- Accommodation: €150
+- Food: €50
+- Transportation: €10
+- Activities: €20
+- Day Subtotal: €230
+
+### Day 2: Eiffel Tower & Montmartre
+- Morning: Visit Eiffel Tower — €25
+- Afternoon: Walk through Montmartre
+- Place: Sacré-Cœur Basilica
+- Food: €40
+- Accommodation: €150
+- Transportation: €15
+- Activities: €25
+- Day Subtotal: €230
+`;
+
+const parsedParis = parseItinerary(sampleExplicitMarkdown);
+assert.strictEqual(parsedParis.days.length, 2, "Should have 2 days");
+const day1Places = parsedParis.days[0].places;
+const day2Places = parsedParis.days[1].places;
+
+// Verify places were extracted
+assert.ok(day1Places.length > 0, "Day 1 should have extracted places");
+assert.ok(day2Places.length > 0, "Day 2 should have extracted places");
+assert.ok(day1Places.includes("Louvre Museum"), "Day 1 should include Louvre Museum from explicit Place line");
+assert.ok(day2Places.includes("Sacré-Cœur Basilica"), "Day 2 should include Sacré-Cœur Basilica");
+
+// Verify NO place is a price or money value
+parsedParis.days.forEach((day) => {
+  day.places.forEach((p) => {
+    assert.ok(!/^[€$₹£]/.test(p), `Place '${p}' should not start with a currency symbol`);
+    assert.ok(!/^\d+/.test(p), `Place '${p}' should not start with a number`);
+    assert.ok(!/cost/i.test(p), `Place '${p}' should not contain cost label`);
+  });
+});
+console.log("✓ Test 6 Passed: Places extracted correctly across days and all money/costs are strictly rejected from places.");
+
+// Test 7: Verify bulleted Activity & Place lines are parsed into Morning/Afternoon/Evening sections,
+// without phantom divider items or cost headers getting mixed in
+const sampleStandardAiMarkdown = `
+## Day 1 - Montmartre & Arrival
+
+**Morning**
+- Activity: Visit Sacré-Cœur Basilica and take in the panoramic view of Paris.
+- Place: Sacré-Cœur Basilica
+
+**Afternoon**
+- Activity: Explore Place du Tertre and enjoy authentic crêpes for lunch.
+- Place: Place du Tertre
+
+**Evening**
+- Activity: Romantic dinner at a cozy bistro in Montmartre.
+- Place: Le Consulat
+
+**Getting Around**
+- RER B from CDG to Châtelet, then Metro Line 2 to Anvers (approx. 50 min).
+
+**Estimated Day Cost**
+- Accommodation: €180
+- Food: €60
+- Local transport: €15
+- Activities and attractions: €20
+- Other applicable expenses: €10
+- Day subtotal: €285
+
+---
+`;
+
+const parsedStandard = parseItinerary(sampleStandardAiMarkdown);
+assert.strictEqual(parsedStandard.days.length, 1);
+const standardDay1 = parsedStandard.days[0];
+
+// Verify all 4 expected time sections exist with their items
+const morningSec = standardDay1.sections.find((s) => s.title.toLowerCase() === "morning");
+const afternoonSec = standardDay1.sections.find((s) => s.title.toLowerCase() === "afternoon");
+const eveningSec = standardDay1.sections.find((s) => s.title.toLowerCase() === "evening");
+const gettingAroundSec = standardDay1.sections.find((s) => s.title.toLowerCase().includes("getting around"));
+
+assert.ok(morningSec, "Morning section must exist");
+assert.strictEqual(morningSec.items.length, 1, "Morning section must have 1 item");
+assert.ok(morningSec.items[0].activity.includes("Sacré-Cœur"), "Morning activity must contain Sacré-Cœur");
+assert.strictEqual(morningSec.items[0].place, "Sacré-Cœur Basilica", "Morning activity must have linked place");
+
+assert.ok(afternoonSec, "Afternoon section must exist");
+assert.strictEqual(afternoonSec.items.length, 1, "Afternoon section must have 1 item");
+assert.ok(afternoonSec.items[0].activity.includes("Place du Tertre"), "Afternoon activity must contain Place du Tertre");
+assert.strictEqual(afternoonSec.items[0].place, "Place du Tertre", "Afternoon activity must have linked place");
+
+assert.ok(eveningSec, "Evening section must exist");
+assert.strictEqual(eveningSec.items.length, 1, "Evening section must have 1 item");
+assert.ok(eveningSec.items[0].activity.includes("dinner"), "Evening activity must contain dinner");
+assert.strictEqual(eveningSec.items[0].place, "Le Consulat", "Evening activity must have linked place");
+
+assert.ok(gettingAroundSec, "Getting around section must exist");
+assert.strictEqual(gettingAroundSec.items.length, 1, "Getting around must have 1 item");
+
+// Verify no items have "---" or "Estimated Day Cost"
+standardDay1.sections.forEach((sec) => {
+  sec.items.forEach((it) => {
+    assert.notStrictEqual(it.activity, "---", "No item should have activity '---'");
+    assert.notStrictEqual(it.activity, "Estimated Day Cost", "No item should have activity 'Estimated Day Cost'");
+  });
+});
+console.log("✓ Test 7 Passed: Time sections and activities parsed with places cleanly; phantom '---' and cost header items eliminated.");
+
 console.log("\nALL FRONTEND UNIT TESTS PASSED SUCCESSFULLY! ✨");
+
