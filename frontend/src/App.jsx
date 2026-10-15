@@ -7,17 +7,12 @@ import {
   convertCurrency,
 } from "./utils/currency";
 
-/* =========================================================
-   SMARTTRIP BACKEND
-========================================================= */
-
+// IMPORTANT: Set VITE_BACKEND_URL in your Vercel project settings (Settings → Environment Variables).
+// Example: VITE_BACKEND_URL = https://your-service.onrender.com
+// Without it, production will fall back to localhost which will NOT work.
 const BACKEND_URL =
   import.meta.env.VITE_BACKEND_URL ||
-  (typeof window !== "undefined" &&
-  (window.location.hostname === "localhost" ||
-    window.location.hostname === "127.0.0.1")
-    ? "http://localhost:8080"
-    : "https://smarttrips.up.railway.app");
+  "http://localhost:8080";
 
 /* =========================================================
    TRIP STYLES

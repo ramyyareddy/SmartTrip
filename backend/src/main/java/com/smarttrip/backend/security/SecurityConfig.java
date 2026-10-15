@@ -69,17 +69,9 @@ public class SecurityConfig {
 
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // Allow the deployed SmartTrip frontend and any frontend client
-        configuration.setAllowedOrigins(
-            List.of(
-                "https://smarttrip-app.up.railway.app",
-                "https://accurate-clarity-production-1b45.up.railway.app",
-                "http://localhost:5173",
-                "http://127.0.0.1:5173",
-                "http://localhost:3000",
-                "http://127.0.0.1:3000"
-            )
-        );
+        // Allow any origin (frontend on Vercel, Railway, localhost, etc.)
+        // allowedOriginPatterns("*") is used because allowCredentials is false,
+        // which is compatible with wildcard patterns.
         configuration.setAllowedOriginPatterns(List.of("*"));
 
         configuration.setAllowedMethods(
